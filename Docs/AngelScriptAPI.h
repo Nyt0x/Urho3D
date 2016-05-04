@@ -295,6 +295,7 @@ class Animation
 // Methods:
 void AddTrigger(const AnimationTriggerPoint&);
 void AddTrigger(float, bool, const Variant&);
+Animation Clone(const String& = String ( )) const;
 AnimationTrack CreateTrack(const String&);
 bool HasSubscribedToEvent(Object, const String&);
 bool HasSubscribedToEvent(const String&);
@@ -5055,7 +5056,7 @@ void SendEvent(const String&, VariantMap& = VariantMap ( ));
 bool SetDrawRange(PrimitiveType, uint, uint, bool = true);
 bool SetDrawRange(PrimitiveType, uint, uint, uint, uint, bool = true);
 void SetIndexBuffer(IndexBuffer);
-bool SetVertexBuffer(uint, VertexBuffer, uint = MASK_DEFAULT);
+bool SetVertexBuffer(uint, VertexBuffer);
 
 // Properties:
 /* readonly */
@@ -5082,8 +5083,6 @@ Array<VertexBuffer> vertexBuffers;
 /* readonly */
 uint vertexCount;
 /* readonly */
-Array<uint> vertexElementMasks;
-/* readonly */
 uint vertexStart;
 /* readonly */
 int weakRefs;
@@ -5103,7 +5102,7 @@ void PrecacheShaders(File);
 void PrecacheShaders(VectorBuffer&);
 void SendEvent(const String&, VariantMap& = VariantMap ( ));
 bool SetMode(int, int);
-bool SetMode(int, int, bool, bool, bool, bool, bool, int);
+bool SetMode(int, int, bool, bool, bool, bool, bool, bool, int);
 void SetWindowPosition(int, int);
 bool TakeScreenShot(Image);
 bool ToggleFullscreen();
@@ -8346,6 +8345,7 @@ Material defaultLightSpot;
 /* readonly */
 Material defaultMaterial;
 RenderPath defaultRenderPath;
+Technique defaultTechnique;
 /* readonly */
 Zone defaultZone;
 bool drawShadows;
@@ -12858,12 +12858,17 @@ uint size;
 class VertexBuffer
 {
 // Methods:
-VectorBuffer GetData();
+VectorBuffer GetData() const;
+uint GetElementOffset(VertexElementSemantic, uint8 = 0) const;
+uint GetElementOffset(VertexElementType, VertexElementSemantic, uint8 = 0) const;
+bool HasElement(VertexElementSemantic, uint8 = 0) const;
+bool HasElement(VertexElementType, VertexElementSemantic, uint8 = 0) const;
 bool HasSubscribedToEvent(Object, const String&);
 bool HasSubscribedToEvent(const String&);
 void SendEvent(const String&, VariantMap& = VariantMap ( ));
 bool SetData(VectorBuffer&);
 bool SetDataRange(VectorBuffer&, uint, uint, bool = false);
+void SetSize(uint, Array<VertexElement>, bool = false);
 void SetSize(uint, uint, bool = false);
 
 // Properties:
@@ -12873,6 +12878,8 @@ String category;
 bool dynamic;
 /* readonly */
 uint elementMask;
+/* readonly */
+Array<VertexElement> elements;
 /* readonly */
 int refs;
 bool shadowed;
@@ -12886,6 +12893,17 @@ uint vertexCount;
 uint vertexSize;
 /* readonly */
 int weakRefs;
+};
+
+class VertexElement
+{
+
+// Properties:
+uint8 index;
+uint offset;
+bool perInstance;
+VertexElementSemantic semantic;
+VertexElementType type;
 };
 
 class View3D
@@ -14146,6 +14164,32 @@ VAR_DOUBLE,
 VAR_STRINGVECTOR,
 };
 
+enum VertexElementSemantic
+{
+SEM_POSITION,
+SEM_NORMAL,
+SEM_BINORMAL,
+SEM_TANGENT,
+SEM_TEXCOORD,
+SEM_COLOR,
+SEM_BLENDWEIGHTS,
+SEM_BLENDINDICES,
+SEM_OBJECTINDEX,
+MAX_VERTEX_ELEMENT_SEMANTICS,
+};
+
+enum VertexElementType
+{
+TYPE_INT,
+TYPE_FLOAT,
+TYPE_VECTOR2,
+TYPE_VECTOR3,
+TYPE_VECTOR4,
+TYPE_UBYTE4,
+TYPE_UBYTE4_NORM,
+MAX_VERTEX_ELEMENT_TYPES,
+};
+
 enum VerticalAlignment
 {
 VA_TOP,
@@ -14493,7 +14537,6 @@ uint MASK_BLENDWEIGHTS;
 uint MASK_COLOR;
 uint MASK_CUBETEXCOORD1;
 uint MASK_CUBETEXCOORD2;
-uint MASK_DEFAULT;
 uint MASK_INSTANCEMATRIX1;
 uint MASK_INSTANCEMATRIX2;
 uint MASK_INSTANCEMATRIX3;

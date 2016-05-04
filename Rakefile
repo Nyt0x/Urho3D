@@ -307,19 +307,19 @@ task :ci do
   # Obtain our custom data, if any
   if ENV['APPVEYOR']
     # AppVeyor does not provide job number environment variable in the same semantics as TRAVIS_JOB_NUMBER nor it supports custom data in its .appveyor.yml document
-    if ENV['excluded_sample']
-      pairs = ENV['excluded_sample'].split
+    if ENV['included_sample'] || ENV['excluded_sample']   # Inclusion has higher precedence
+      pairs = (ENV['included_sample'] || ENV['excluded_sample']).split
       samples = pairs.pop.split ','
       matched = true
       pairs.each { |pair|
         kv = pair.split '='
         matched = false if ENV[kv.first] != kv.last
       }
-      samples.each { |name| ENV["EXCLUDE_SAMPLE_#{name}"] = '1' } if matched
+      samples.each { |name| ENV["#{ENV['included_sample'] ? 'INCLUDED' : 'EXCLUDED'}_SAMPLE_#{name}"] = '1' } if matched
     end
   else
     data = YAML::load(File.open('.travis.yml'))['data']
-    data['excluded_sample']["##{ENV['TRAVIS_JOB_NUMBER'].split('.').last}"].each { |name| ENV["EXCLUDE_SAMPLE_#{name}"] = '1' } if data && data['excluded_sample'] && data['excluded_sample']["##{ENV['TRAVIS_JOB_NUMBER'].split('.').last}"]
+    data['excluded_sample']["##{ENV['TRAVIS_JOB_NUMBER'].split('.').last}"].each { |name| ENV["EXCLUDED_SAMPLE_#{name}"] = '1' } if data && data['excluded_sample'] && data['excluded_sample']["##{ENV['TRAVIS_JOB_NUMBER'].split('.').last}"]
   end
   # Unshallow the clone's history when necessary
   if ENV['CI'] && ENV['PACKAGE_UPLOAD'] && !ENV['RELEASE_TAG']
@@ -350,14 +350,11 @@ task :ci do
     system 'rake ci_push_bindings' or abort
     next
   end
-  # Enable more granular timeup check for Xcode
-  system 'touch enabled_time_check.log' if ENV['XCODE']
-  if !system "bash -c 'rake make'"
+  if !wait_for_block { Thread.current[:subcommand_to_kill] = 'xcodebuild'; system "bash -c 'rake make'" }
     abort 'Failed to build Urho3D library' unless File.exists?('already_timeup.log')
     $stderr.puts "Skipped the rest of the CI processes due to insufficient time"
     next
   end
-  File.delete 'enabled_time_check.log' if ENV['XCODE']
   if ENV['URHO3D_TESTING'] && !timeup
     # Multi-config CMake generators use different test target name than single-config ones for no good reason
     test = "rake make target=#{ENV['OS'] || ENV['XCODE'] ? 'RUN_TESTS' : 'test'}"
@@ -370,8 +367,11 @@ task :ci do
   unless ENV['CI'] && (ENV['IOS'] || ENV['WEB']) && ENV['PACKAGE_UPLOAD'] || ENV['XCODE_64BIT_ONLY'] || timeup
     # Staged-install Urho3D SDK when on Travis-CI; normal install when on AppVeyor
     ENV['DESTDIR'] = ENV['HOME'] || Dir.home unless ENV['APPVEYOR']
-    puts "Installing Urho3D SDK to #{ENV['DESTDIR'] ? "#{ENV['DESTDIR']}/usr/local" : 'default system-wide location'}..."; $stdout.flush
-    system "bash -c 'rake make target=install >/dev/null'" or abort 'Failed to install Urho3D SDK'
+    if !wait_for_block("Installing Urho3D SDK to #{ENV['DESTDIR'] ? "#{ENV['DESTDIR']}/usr/local" : 'default system-wide location'}...") { Thread.current[:subcommand_to_kill] = 'xcodebuild'; system "bash -c 'rake make target=install >/dev/null'" }
+      abort 'Failed to install Urho3D SDK' unless File.exists?('already_timeup.log')
+      $stderr.puts "Skipped the rest of the CI processes due to insufficient time"
+      next
+    end
     # Alternate to use in-the-source build tree for test coverage
     ENV['build_tree'] = '.' unless ENV['APPVEYOR']
     # Ensure the following variables are auto-discovered during scaffolding test
@@ -386,9 +386,10 @@ task :ci do
       # SDK installation to a system-wide location does not need URHO3D_HOME to be defined, staged-installation does
       system "bash -c '#{ENV['DESTDIR'] ? 'URHO3D_HOME=~/usr/local' : ''} rake cmake #{generator} URHO3D_LUA=1 && rake make #{test}'" or abort 'Failed to configure/build/test temporary downstream project using Urho3D as external library'
     end
+    next if timeup
     # Second test - create a new project on the fly that uses newly built Urho3D library in the build tree
     Dir.chdir scaffolding "#{ENV['APPVEYOR'] ? '' : '../Build/'}UsingBuildTree" do
-      puts "\nConfiguring downstream project using Urho3D library in its build tree...\n\n"; $stdout.flush
+      puts "Configuring downstream project using Urho3D library in its build tree...\n\n"; $stdout.flush
       system "bash -c 'rake cmake #{generator} URHO3D_HOME=#{ENV['APPVEYOR'] ? '../../Build' : '..'} URHO3D_LUA=1 && rake make #{test}'" or abort 'Failed to configure/build/test temporary downstream project using Urho3D as external library'
     end
   end
@@ -532,7 +533,7 @@ task :ci_create_mirrors do
   stream = YAML::load_stream(File.open('.travis.yml'))
   notifications = stream[0]['notifications']
   notifications['email']['recipients'] = get_root_commit_and_recipients().last unless notifications['email']['recipients']
-  stream.drop(1).each { |doc| branch = doc.delete('branch'); ci = branch['name']; ci_branch = ENV['RELEASE_TAG'] || (ENV['TRAVIS_BRANCH'] == 'master' && ENV['TRAVIS_PULL_REQUEST'] == 'false') ? ci : (ENV['TRAVIS_PULL_REQUEST'] == 'false' ? "#{ENV['TRAVIS_BRANCH']}-#{ci}" : "PR ##{ENV['TRAVIS_PULL_REQUEST']}-#{ci}"); is_appveyor_ci = branch['appveyor']; next if skip_travis && !is_appveyor_ci; unless (branch['mandatory'] || !head_moved) && ((ci_only && ci_only.map { |i| /#{i}/ =~ ci }.any?) || (!ci_only && (branch['active'] || (scan && /Scan/ =~ ci) || (annotate && /Annotate/ =~ ci)))); system "if git fetch origin #{ci_branch}:#{ci_branch} 2>/dev/null; then git push -qf origin --delete #{ci_branch}; fi"; puts "Skipped creating #{ci_branch} mirror branch due to moving HEAD" if !ci_only && branch['active'] && head_moved; next; end; unless is_appveyor_ci; lastjob = [(doc['env']['matrix'] ? doc['env']['matrix'].length : 0) + (doc['matrix'] && doc['matrix']['include'] ? doc['matrix']['include'].length : 0), 1].max; doc['after_script'] = [*doc['after_script']] << (lastjob == 1 ? '%s' : "if [ ${TRAVIS_JOB_NUMBER##*.} == #{lastjob} ]; then %s; fi") % 'rake ci_delete_mirror'; doc['notifications'] = notifications unless doc['notifications']; doc_name = '.travis.yml'; File.open("#{doc_name}.new", 'w') { |file| file.write doc.to_yaml } else doc['on_finish'] = [*doc['on_finish']] << "if \"%PLATFORM%:%URHO3D_LIB_TYPE%\" == \"#{branch['last_job']}\" rake ci_delete_mirror"; doc_name = '.appveyor.yml'; File.open("#{doc_name}.new", 'w') { |file| file.write doc.to_yaml }; if ENV['TRAVIS']; replaced_content = File.read("#{doc_name}.new").gsub(/! /, ''); File.open("#{doc_name}.new", 'w') { |file| file.puts replaced_content }; end; end; puts "Creating #{ci_branch} mirror branch..."; system "git checkout -qB #{ci_branch} && rm .appveyor.yml .travis.yml && mv #{doc_name}.new #{doc_name} && git add -A . && git commit -qm \"#{escaped_commit_message}\" && git push -qf -u origin #{ci_branch} >/dev/null 2>&1 && git checkout -q -" or abort "Failed to create #{ci_branch} mirror branch" }
+  stream.drop(1).each { |doc| branch = doc.delete('branch'); ci = branch['name']; ci_branch = ENV['RELEASE_TAG'] || (ENV['TRAVIS_BRANCH'] == 'master' && ENV['TRAVIS_PULL_REQUEST'] == 'false') ? ci : (ENV['TRAVIS_PULL_REQUEST'] == 'false' ? "#{ENV['TRAVIS_BRANCH']}-#{ci}" : "PR ##{ENV['TRAVIS_PULL_REQUEST']}-#{ci}"); is_appveyor_ci = branch['appveyor']; next if skip_travis && !is_appveyor_ci; unless (branch['mandatory'] || !head_moved) && ((ci_only && ci_only.map { |i| /#{i}/ =~ ci }.any?) || (!ci_only && (branch['active'] || (scan && /Scan/ =~ ci) || (annotate && /Annotate/ =~ ci)))); system "if git fetch origin #{ci_branch}:#{ci_branch} 2>/dev/null; then git push -qf origin --delete #{ci_branch}; fi"; puts "Skipped creating #{ci_branch} mirror branch due to moving HEAD" if !ci_only && branch['active'] && head_moved; next; end; unless is_appveyor_ci; lastjob = [(doc['env']['matrix'] ? doc['env']['matrix'].length : 0) + (doc['matrix'] && doc['matrix']['include'] ? doc['matrix']['include'].length : 0), 1].max; doc['after_script'] = [*doc['after_script']] << (lastjob == 1 ? '%s' : "if [ ${TRAVIS_JOB_NUMBER##*.} == #{lastjob} ]; then %s; fi") % 'rake ci_delete_mirror'; doc['notifications'] = notifications unless doc['notifications']; doc_name = '.travis.yml'; File.open("#{doc_name}.new", 'w') { |file| file.write doc.to_yaml } else doc['on_finish'] = [*doc['on_finish']] << "if \"%PLATFORM%:%URHO3D_LIB_TYPE%\" == \"#{branch['last_job']}\" rake ci_delete_mirror"; doc_name = '.appveyor.yml'; File.open("#{doc_name}.new", 'w') { |file| file.write doc.to_yaml }; if ENV['TRAVIS']; replaced_content = File.read("#{doc_name}.new").gsub(/! /, ''); File.open("#{doc_name}.new", 'w') { |file| file.puts replaced_content }; end; end; puts "Creating #{ci_branch} mirror branch..."; system "git checkout -qB #{ci_branch} && rm .appveyor.yml .travis.yml && mv #{doc_name}.new #{doc_name} && git add -A . && git commit -qm \"#{escaped_commit_message}\" && git push -qf -u origin #{ci_branch} >/dev/null 2>&1 && git checkout -q - && sleep 5" or abort "Failed to create #{ci_branch} mirror branch" }
   # Push pending commits if any
   system "git push origin #{head}:#{ENV['TRAVIS_BRANCH']} -q >/dev/null 2>&1" or abort "Failed to push pending commits to #{ENV['TRAVIS_BRANCH']}" if head_moved
 end
@@ -572,6 +573,7 @@ task :ci_package_upload do
     # Ignore the exit status from 'make doc' on Windows host system only due to Doxygen may not return exit status correctly on Windows
     system "bash -c 'rake make target=doc >/dev/null'" or ENV['OS'] or abort 'Failed to generate documentation'
   end
+  next if timeup
   # Make the package
   puts "Packaging artifacts...\n\n"; $stdout.flush
   if ENV['IOS']
@@ -645,14 +647,8 @@ task :ci_timer do
   timeup
 end
 
-# Usage: NOT Intended to be used manually
-desc 'Check if the time is up when the time check is enabled'
-task :ci_timeup do
-  abort "Time up!" if File.exists?('enabled_time_check.log') && timeup(true)
-end
-
 # Always call this function last in the multiple conditional check so that the checkpoint message does not being echoed unnecessarily
-def timeup quiet = false
+def timeup quiet = false, cutoff_time = 40.0
   unless File.exists?('start_time.log')
     system 'touch start_time.log split_time.log'
     return nil
@@ -664,7 +660,7 @@ def timeup quiet = false
     system 'touch split_time.log'
     puts "\n=== elapsed time: #{elapsed_time.to_i} minutes #{((elapsed_time - elapsed_time.to_i) * 60.0).round} seconds, lap time: #{lap_time.to_i} minutes #{((lap_time - lap_time.to_i) * 60.0).round} seconds ===\n\n" unless File.exists?('already_timeup.log'); $stdout.flush
   end
-  return system('touch already_timeup.log') if elapsed_time > 40.0
+  return system('touch already_timeup.log') if elapsed_time > cutoff_time
 end
 
 def scaffolding dir, project = 'Scaffolding', target = 'Main'
@@ -723,9 +719,9 @@ endif ()
 EOF
   # TODO: Rewrite in pure Ruby when it supports symlink creation on Windows platform and avoid forward/backward slash conversion
   if ENV['OS']
-    system("@echo off && mkdir \"#{dir}\"\\bin && copy Source\\Tools\\Urho3DPlayer\\Urho3DPlayer.* \"#{dir}\" >nul && (for %f in (*.bat Rakefile) do mklink \"#{dir}\"\\%f %cd%\\%f >nul) && mklink /D \"#{dir}\"\\CMake %cd%\\CMake && (for %d in (CoreData,Data) do mklink /D \"#{dir}\"\\bin\\%d %cd%\\bin\\%d >nul)") && File.write("#{dir}/CMakeLists.txt", build_script) or abort 'Failed to scaffolding'
+    system("@echo off && mkdir \"#{dir}\"\\bin && copy Source\\Tools\\Urho3DPlayer\\Urho3DPlayer.* \"#{dir}\" >nul && (for %f in (*.bat Rakefile) do mklink \"#{dir}\"\\%f %cd%\\%f >nul) && mklink /D \"#{dir}\"\\CMake %cd%\\CMake && (for %d in (Autoload,CoreData,Data) do mklink /D \"#{dir}\"\\bin\\%d %cd%\\bin\\%d >nul)") && File.write("#{dir}/CMakeLists.txt", build_script) or abort 'Failed to scaffolding'
   else
-    system("bash -c \"mkdir -p '#{dir}'/bin && cp Source/Tools/Urho3DPlayer/Urho3DPlayer.* '#{dir}' && for f in {.,}*.sh Rakefile CMake; do ln -sf `pwd`/\\$f '#{dir}'; done && ln -sf `pwd`/bin/{Core,}Data '#{dir}'/bin\"") && File.write("#{dir}/CMakeLists.txt", build_script) or abort 'Failed to scaffolding'
+    system("bash -c \"mkdir -p '#{dir}'/bin && cp Source/Tools/Urho3DPlayer/Urho3DPlayer.* '#{dir}' && for f in {.,}*.sh Rakefile CMake; do ln -sf `pwd`/\\$f '#{dir}'; done && ln -sf `pwd`/bin/{Autoload,CoreData,Data} '#{dir}'/bin\"") && File.write("#{dir}/CMakeLists.txt", build_script) or abort 'Failed to scaffolding'
   end
   return dir
 end
@@ -825,24 +821,35 @@ EOF") { |stdout| echo = false; while output = stdout.gets do if echo && /#\s#/ !
   end
 end
 
-# Usage: wait_for_block("This is a long function call...") { Thread.current[:exit_code] = call_a_func } or abort
-#        wait_for_block("This is a long system call...") { system "do_something"; Thread.current[:exit_code] = $?.exitstatus } or abort
-def wait_for_block comment = '', retries = -1, retry_interval = 60, exit_code_sym = 'exit_code', &block
+# Usage: wait_for_block('This is a long function call...') { call_a_func } or abort
+#        wait_for_block('This is a long system call...') { system 'do_something' } or abort
+def wait_for_block comment = '', retries = -1, retry_interval = 60
+  # When not using Xcode, execute the code block in full speed
+  unless ENV['XCODE']
+    puts comment; $stdout.flush
+    return yield
+  end
+
   # Wait until the code block is completed or it is killed externally by user via Ctrl+C or when it exceeds the number of retries (if the retries parameter is provided)
-  thread = Thread.new &block
+  thread = Thread.new { rc = yield; Thread.main.wakeup; rc }
+  thread.priority = 1   # Make the worker thread has higher priority than the main thread
   str = comment
   retries = retries * 60 / retry_interval unless retries == -1
-  until retries == 0
-    if thread.status == false
-      thread.join
+  until thread.status == false
+    if retries == 0 || timeup(true)
+      thread.kill
+      # Also kill the child subproceses spawned by the worker thread if specified
+      system "killall #{thread[:subcommand_to_kill]}" if thread[:subcommand_to_kill]
+      sleep 5
       break
     end
     print str; str = '.'; $stdout.flush   # Flush the standard output stream in case it is buffered to prevent Travis-CI into thinking that the build/test has stalled
-    sleep retry_interval
     retries -= 1 if retries > 0
+    sleep retry_interval
   end
   puts "\n" if str == '.'; $stdout.flush
-  return retries == 0 ? nil : (exit_code_sym ? thread[exit_code_sym] : 0)
+  thread.join
+  return thread.value
 end
 
 def append_new_release release, filename = '../urho3d.github.io/_data/urho3d.json'

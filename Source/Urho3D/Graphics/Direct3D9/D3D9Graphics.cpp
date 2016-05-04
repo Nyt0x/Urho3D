@@ -268,6 +268,7 @@ Graphics::Graphics(Context* context) :
     fullscreen_(false),
     borderless_(false),
     resizable_(false),
+    highDPI_(false),
     vsync_(false),
     tripleBuffer_(false),
     flushGPU_(false),
@@ -366,10 +367,12 @@ void Graphics::SetWindowPosition(int x, int y)
     SetWindowPosition(IntVector2(x, y));
 }
 
-bool Graphics::SetMode(int width, int height, bool fullscreen, bool borderless, bool resizable, bool vsync, bool tripleBuffer,
-    int multiSample)
+bool Graphics::SetMode(int width, int height, bool fullscreen, bool borderless, bool resizable, bool highDPI, bool vsync,
+    bool tripleBuffer, int multiSample)
 {
     URHO3D_PROFILE(SetScreenMode);
+
+    highDPI = false;   // SDL does not support High DPI mode on Windows platform yet, so always disable it for now
 
     bool maximize = false;
 
@@ -501,6 +504,7 @@ bool Graphics::SetMode(int width, int height, bool fullscreen, bool borderless, 
     fullscreen_ = fullscreen;
     borderless_ = borderless;
     resizable_ = resizable;
+    highDPI_ = highDPI;
     vsync_ = vsync;
     tripleBuffer_ = tripleBuffer;
 
@@ -553,8 +557,9 @@ bool Graphics::SetMode(int width, int height, bool fullscreen, bool borderless, 
     eventData[P_WIDTH] = width_;
     eventData[P_HEIGHT] = height_;
     eventData[P_FULLSCREEN] = fullscreen_;
-    eventData[P_RESIZABLE] = resizable_;
     eventData[P_BORDERLESS] = borderless_;
+    eventData[P_RESIZABLE] = resizable_;
+    eventData[P_HIGHDPI] = highDPI_;
     SendEvent(E_SCREENMODE, eventData);
 
     return true;
@@ -562,7 +567,7 @@ bool Graphics::SetMode(int width, int height, bool fullscreen, bool borderless, 
 
 bool Graphics::SetMode(int width, int height)
 {
-    return SetMode(width, height, fullscreen_, borderless_, resizable_, vsync_, tripleBuffer_, multiSample_);
+    return SetMode(width, height, fullscreen_, borderless_, resizable_, highDPI_, vsync_, tripleBuffer_, multiSample_);
 }
 
 void Graphics::SetSRGB(bool enable)
@@ -583,7 +588,7 @@ void Graphics::SetOrientations(const String& orientations)
 
 bool Graphics::ToggleFullscreen()
 {
-    return SetMode(width_, height_, !fullscreen_, borderless_, resizable_, vsync_, tripleBuffer_, multiSample_);
+    return SetMode(width_, height_, !fullscreen_, borderless_, resizable_, highDPI_, vsync_, tripleBuffer_, multiSample_);
 }
 
 void Graphics::Close()
@@ -909,6 +914,23 @@ void Graphics::Draw(PrimitiveType type, unsigned indexStart, unsigned indexCount
     ++numBatches_;
 }
 
+void Graphics::Draw(PrimitiveType type, unsigned indexStart, unsigned indexCount, unsigned baseVertexIndex, unsigned minVertex, unsigned vertexCount)
+{
+    if (!indexCount)
+        return;
+
+    ResetStreamFrequencies();
+
+    unsigned primitiveCount;
+    D3DPRIMITIVETYPE d3dPrimitiveType;
+
+    GetD3DPrimitiveType(indexCount, type, primitiveCount, d3dPrimitiveType);
+    impl_->device_->DrawIndexedPrimitive(d3dPrimitiveType, baseVertexIndex, minVertex, vertexCount, indexStart, primitiveCount);
+
+    numPrimitives_ += primitiveCount;
+    ++numBatches_;
+}
+
 void Graphics::DrawInstanced(PrimitiveType type, unsigned indexStart, unsigned indexCount, unsigned minVertex, unsigned vertexCount,
     unsigned instanceCount)
 {
@@ -920,7 +942,9 @@ void Graphics::DrawInstanced(PrimitiveType type, unsigned indexStart, unsigned i
         VertexBuffer* buffer = vertexBuffers_[i];
         if (buffer)
         {
-            if (buffer->GetElementMask() & MASK_INSTANCEMATRIX1)
+            const PODVector<VertexElement>& elements = buffer->GetElements();
+            // Check if buffer has per-instance data
+            if (elements.Size() && elements[0].perInstance_)
                 SetStreamFrequency(i, D3DSTREAMSOURCE_INSTANCEDATA | 1u);
             else
                 SetStreamFrequency(i, D3DSTREAMSOURCE_INDEXEDDATA | instanceCount);
@@ -937,38 +961,60 @@ void Graphics::DrawInstanced(PrimitiveType type, unsigned indexStart, unsigned i
     ++numBatches_;
 }
 
+void Graphics::DrawInstanced(PrimitiveType type, unsigned indexStart, unsigned indexCount, unsigned baseVertexIndex, unsigned minVertex,
+    unsigned vertexCount, unsigned instanceCount)
+{
+    if (!indexCount || !instanceCount)
+        return;
+
+    for (unsigned i = 0; i < MAX_VERTEX_STREAMS; ++i)
+    {
+        VertexBuffer* buffer = vertexBuffers_[i];
+        if (buffer)
+        {
+            const PODVector<VertexElement>& elements = buffer->GetElements();
+            // Check if buffer has per-instance data
+            if (elements.Size() && elements[0].perInstance_)
+                SetStreamFrequency(i, D3DSTREAMSOURCE_INSTANCEDATA | 1u);
+            else
+                SetStreamFrequency(i, D3DSTREAMSOURCE_INDEXEDDATA | instanceCount);
+        }
+    }
+
+    unsigned primitiveCount;
+    D3DPRIMITIVETYPE d3dPrimitiveType;
+
+    GetD3DPrimitiveType(indexCount, type, primitiveCount, d3dPrimitiveType);
+    impl_->device_->DrawIndexedPrimitive(d3dPrimitiveType, baseVertexIndex, minVertex, vertexCount, indexStart, primitiveCount);
+
+    numPrimitives_ += instanceCount * primitiveCount;
+    ++numBatches_;
+}
+
 void Graphics::SetVertexBuffer(VertexBuffer* buffer)
 {
     // Note: this is not multi-instance safe
     static PODVector<VertexBuffer*> vertexBuffers(1);
-    static PODVector<unsigned> elementMasks(1);
     vertexBuffers[0] = buffer;
-    elementMasks[0] = MASK_DEFAULT;
-    SetVertexBuffers(vertexBuffers, elementMasks);
+    SetVertexBuffers(vertexBuffers);
 }
 
-bool Graphics::SetVertexBuffers(const PODVector<VertexBuffer*>& buffers, const PODVector<unsigned>& elementMasks,
-    unsigned instanceOffset)
+bool Graphics::SetVertexBuffers(const PODVector<VertexBuffer*>& buffers, unsigned instanceOffset)
 {
     if (buffers.Size() > MAX_VERTEX_STREAMS)
     {
         URHO3D_LOGERROR("Too many vertex buffers");
         return false;
     }
-    if (buffers.Size() != elementMasks.Size())
-    {
-        URHO3D_LOGERROR("Amount of element masks and vertex buffers does not match");
-        return false;
-    }
 
-    // Build vertex declaration hash code out of the buffers & masks
+    // Build vertex declaration hash code out of the buffers
     unsigned long long hash = 0;
     for (unsigned i = 0; i < buffers.Size(); ++i)
     {
         if (!buffers[i])
             continue;
 
-        hash |= buffers[i]->GetBufferHash(i, elementMasks[i]);
+        hash |= buffers[i]->GetBufferHash(i);
     }
 
     if (hash)
@@ -976,7 +1022,7 @@ bool Graphics::SetVertexBuffers(const PODVector<VertexBuffer*>& buffers, const P
         // If no previous vertex declaration for that hash, create new
         if (!vertexDeclarations_.Contains(hash))
         {
-            SharedPtr<VertexDeclaration> newDeclaration(new VertexDeclaration(this, buffers, elementMasks));
+            SharedPtr<VertexDeclaration> newDeclaration(new VertexDeclaration(this, buffers));
             if (!newDeclaration->GetDeclaration())
                 return false;
 
@@ -996,10 +1042,12 @@ bool Graphics::SetVertexBuffers(const PODVector<VertexBuffer*>& buffers, const P
         VertexBuffer* buffer = 0;
         unsigned offset = 0;
 
-        if (i < buffers.Size())
+        if (i < buffers.Size() && buffers[i])
         {
             buffer = buffers[i];
-            if (buffer && buffer->GetElementMask() & MASK_INSTANCEMATRIX1)
+            const PODVector<VertexElement>& elements = buffer->GetElements();
+            // Check if buffer has per-instance data; add instance offset in that case
+            if (elements.Size() && elements[0].perInstance_)
                 offset = instanceOffset * buffer->GetVertexSize();
         }
 
@@ -1019,10 +1067,9 @@ bool Graphics::SetVertexBuffers(const PODVector<VertexBuffer*>& buffers, const P
     return true;
 }
 
-bool Graphics::SetVertexBuffers(const Vector<SharedPtr<VertexBuffer> >& buffers, const PODVector<unsigned>& elementMasks,
-    unsigned instanceOffset)
+bool Graphics::SetVertexBuffers(const Vector<SharedPtr<VertexBuffer> >& buffers, unsigned instanceOffset)
 {
-    return SetVertexBuffers(reinterpret_cast<const PODVector<VertexBuffer*>&>(buffers), elementMasks, instanceOffset);
+    return SetVertexBuffers(reinterpret_cast<const PODVector<VertexBuffer*>&>(buffers), instanceOffset);
 }
 
 void Graphics::SetIndexBuffer(IndexBuffer* buffer)
