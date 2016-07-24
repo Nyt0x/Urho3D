@@ -30,7 +30,6 @@
 #include "../Graphics/Geometry.h"
 #include "../Graphics/Graphics.h"
 #include "../Graphics/IndexBuffer.h"
-#include "../Graphics/Material.h"
 #include "../Graphics/OctreeQuery.h"
 #include "../Graphics/VertexBuffer.h"
 #include "../IO/MemoryBuffer.h"
@@ -79,6 +78,7 @@ BillboardSet::BillboardSet(Context* context) :
     forceUpdate_(false),
     geometryTypeUpdate_(false),
     sortThisFrame_(false),
+    hasOrthoCamera_(false),
     sortFrameNumber_(0),
     previousOffset_(Vector3::ZERO)
 {
@@ -176,12 +176,14 @@ void BillboardSet::UpdateBatches(const FrameInfo& frame)
     Vector3 worldPos = node_->GetWorldPosition();
     Vector3 offset = (worldPos - frame.camera_->GetNode()->GetWorldPosition());
     // Sort if position relative to camera has changed
-    if (offset != previousOffset_)
+    if (offset != previousOffset_ || frame.camera_->IsOrthographic() != hasOrthoCamera_)
     {
         if (sorted_)
             sortThisFrame_ = true;
         if (faceCameraMode_ == FC_DIRECTION)
             bufferDirty_ = true;
+
+        hasOrthoCamera_ = frame.camera_->IsOrthographic();
 
         // Calculate fixed screen size scale factor for billboards if needed
         if (fixedScreenSize_)
@@ -252,6 +254,8 @@ void BillboardSet::SetNumBillboards(unsigned num)
         num = MAX_BILLBOARDS;
 
     unsigned oldNum = billboards_.Size();
+    if (num == oldNum)
+        return;
 
     billboards_.Resize(num);
 
@@ -485,11 +489,11 @@ void BillboardSet::UpdateBufferSize()
     {
         if (faceCameraMode_ == FC_DIRECTION)
         {
-            vertexBuffer_->SetSize(numBillboards * 4, MASK_POSITION | MASK_NORMAL | MASK_COLOR | MASK_TEXCOORD1 | MASK_TEXCOORD2 | MASK_TANGENT, true);
+            vertexBuffer_->SetSize(numBillboards * 4, MASK_POSITION | MASK_NORMAL | MASK_COLOR | MASK_TEXCOORD1 | MASK_TEXCOORD2, true);
             geometry_->SetVertexBuffer(0, vertexBuffer_);
 
-        } 
-        else 
+        }
+        else
         {
             vertexBuffer_->SetSize(numBillboards * 4, MASK_POSITION | MASK_COLOR | MASK_TEXCOORD1 | MASK_TEXCOORD2, true);
             geometry_->SetVertexBuffer(0, vertexBuffer_);
@@ -646,11 +650,9 @@ void BillboardSet::UpdateVertexBuffer(const FrameInfo& frame)
 
             dest += 32;
         }
-    } 
+    }
     else
     {
-        Vector3 cameraWorldPosition = frame.camera_->GetNode()->GetWorldPosition();
-
         for (unsigned i = 0; i < enabledBillboards; ++i)
         {
             Billboard& billboard = *sortedBillboards_[i];
@@ -676,60 +678,44 @@ void BillboardSet::UpdateVertexBuffer(const FrameInfo& frame)
             dest[8] = billboard.uv_.min_.y_;
             dest[9] = -size.x_ * rot2D[0][0] + size.y_ * rot2D[0][1];
             dest[10] = -size.x_ * rot2D[1][0] + size.y_ * rot2D[1][1];
-            dest[11] = cameraWorldPosition.x_;
-            dest[12] = cameraWorldPosition.y_;
-            dest[13] = cameraWorldPosition.z_;
-            dest[14] = 1.0f;
 
-            dest[15] = billboard.position_.x_;
-            dest[16] = billboard.position_.y_;
-            dest[17] = billboard.position_.z_;
-            dest[18] = billboard.direction_.x_;
-            dest[19] = billboard.direction_.y_;
-            dest[20] = billboard.direction_.z_;
-            ((unsigned&)dest[21]) = color;
-            dest[22] = billboard.uv_.max_.x_;
-            dest[23] = billboard.uv_.min_.y_;
-            dest[24] = size.x_ * rot2D[0][0] + size.y_ * rot2D[0][1];
-            dest[25] = size.x_ * rot2D[1][0] + size.y_ * rot2D[1][1];
-            dest[26] = cameraWorldPosition.x_;
-            dest[27] = cameraWorldPosition.y_;
-            dest[28] = cameraWorldPosition.z_;
-            dest[29] = 1.0f;
+            dest[11] = billboard.position_.x_;
+            dest[12] = billboard.position_.y_;
+            dest[13] = billboard.position_.z_;
+            dest[14] = billboard.direction_.x_;
+            dest[15] = billboard.direction_.y_;
+            dest[16] = billboard.direction_.z_;
+            ((unsigned&)dest[17]) = color;
+            dest[18] = billboard.uv_.max_.x_;
+            dest[19] = billboard.uv_.min_.y_;
+            dest[20] = size.x_ * rot2D[0][0] + size.y_ * rot2D[0][1];
+            dest[21] = size.x_ * rot2D[1][0] + size.y_ * rot2D[1][1];
 
-            dest[30] = billboard.position_.x_;
-            dest[31] = billboard.position_.y_;
-            dest[32] = billboard.position_.z_;
-            dest[33] = billboard.direction_.x_;
-            dest[34] = billboard.direction_.y_;
-            dest[35] = billboard.direction_.z_;
-            ((unsigned&)dest[36]) = color;
-            dest[37] = billboard.uv_.max_.x_;
-            dest[38] = billboard.uv_.max_.y_;
-            dest[39] = size.x_ * rot2D[0][0] - size.y_ * rot2D[0][1];
-            dest[40] = size.x_ * rot2D[1][0] - size.y_ * rot2D[1][1];
-            dest[41] = cameraWorldPosition.x_;
-            dest[42] = cameraWorldPosition.y_;
-            dest[43] = cameraWorldPosition.z_;
-            dest[44] = 1.0f;
+            dest[22] = billboard.position_.x_;
+            dest[23] = billboard.position_.y_;
+            dest[24] = billboard.position_.z_;
+            dest[25] = billboard.direction_.x_;
+            dest[26] = billboard.direction_.y_;
+            dest[27] = billboard.direction_.z_;
+            ((unsigned&)dest[28]) = color;
+            dest[29] = billboard.uv_.max_.x_;
+            dest[30] = billboard.uv_.max_.y_;
+            dest[31] = size.x_ * rot2D[0][0] - size.y_ * rot2D[0][1];
+            dest[32] = size.x_ * rot2D[1][0] - size.y_ * rot2D[1][1];
 
-            dest[45] = billboard.position_.x_;
-            dest[46] = billboard.position_.y_;
-            dest[47] = billboard.position_.z_;
-            dest[48] = billboard.direction_.x_;
-            dest[49] = billboard.direction_.y_;
-            dest[50] = billboard.direction_.z_;
-            ((unsigned&)dest[51]) = color;
-            dest[52] = billboard.uv_.min_.x_;
-            dest[53] = billboard.uv_.max_.y_;
-            dest[54] = -size.x_ * rot2D[0][0] - size.y_ * rot2D[0][1];
-            dest[55] = -size.x_ * rot2D[1][0] - size.y_ * rot2D[1][1];
-            dest[56] = cameraWorldPosition.x_;
-            dest[57] = cameraWorldPosition.y_;
-            dest[58] = cameraWorldPosition.z_;
-            dest[59] = 1.0f;
+            dest[33] = billboard.position_.x_;
+            dest[34] = billboard.position_.y_;
+            dest[35] = billboard.position_.z_;
+            dest[36] = billboard.direction_.x_;
+            dest[37] = billboard.direction_.y_;
+            dest[38] = billboard.direction_.z_;
+            ((unsigned&)dest[39]) = color;
+            dest[40] = billboard.uv_.min_.x_;
+            dest[41] = billboard.uv_.max_.y_;
+            dest[42] = -size.x_ * rot2D[0][0] - size.y_ * rot2D[0][1];
+            dest[43] = -size.x_ * rot2D[1][0] - size.y_ * rot2D[1][1];
 
-            dest += 60;
+            dest += 44;
         }
     }
 
@@ -753,7 +739,6 @@ void BillboardSet::CalculateFixedScreenSize(const FrameInfo& frame)
         Matrix4 viewProj(frame.camera_->GetProjection(false) * frame.camera_->GetView());
         const Matrix3x4& worldTransform = node_->GetWorldTransform();
         Matrix3x4 billboardTransform = relative_ ? worldTransform : Matrix3x4::IDENTITY;
-        Vector3 billboardScale = scaled_ ? worldTransform.Scale() : Vector3::ONE;
 
         for (unsigned i = 0; i < billboards_.Size(); ++i)
         {
