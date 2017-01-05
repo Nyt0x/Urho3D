@@ -181,7 +181,9 @@ static const char* geometryVSVariations[] =
     "SKINNED ",
     "INSTANCED ",
     "BILLBOARD ",
-    "DIRBILLBOARD "
+    "DIRBILLBOARD ",
+    "TRAILFACECAM ",
+    "TRAILBONE "
 };
 
 static const char* lightVSVariations[] =
@@ -248,8 +250,20 @@ static const char* heightFogVariations[] =
     "HEIGHTFOG "
 };
 
-static const unsigned INSTANCING_BUFFER_MASK = MASK_INSTANCEMATRIX1 | MASK_INSTANCEMATRIX2 | MASK_INSTANCEMATRIX3;
 static const unsigned MAX_BUFFER_AGE = 1000;
+
+static const int MAX_EXTRA_INSTANCING_BUFFER_ELEMENTS = 4;
+
+inline PODVector<VertexElement> CreateInstancingBufferElements(unsigned numExtraElements)
+{
+    static const unsigned NUM_INSTANCEMATRIX_ELEMENTS = 3;
+    static const unsigned FIRST_UNUSED_TEXCOORD = 4;
+
+    PODVector<VertexElement> elements;
+    for (unsigned i = 0; i < NUM_INSTANCEMATRIX_ELEMENTS + numExtraElements; ++i)
+        elements.Push(VertexElement(TYPE_VECTOR4, SEM_TEXCOORD, FIRST_UNUSED_TEXCOORD + i, true));
+    return elements;
+}
 
 Renderer::Renderer(Context* context) :
     Object(context),
@@ -270,9 +284,9 @@ Renderer::Renderer(Context* context) :
     maxOccluderTriangles_(5000),
     occlusionBufferSize_(256),
     occluderSizeThreshold_(0.025f),
-    mobileShadowBiasMul_(2.0f),
-    mobileShadowBiasAdd_(0.0001f),
-    mobileNormalOffsetMul_(2.0f),
+    mobileShadowBiasMul_(1.0f),
+    mobileShadowBiasAdd_(0.0f),
+    mobileNormalOffsetMul_(1.0f),
     numOcclusionBuffers_(0),
     numShadowCameras_(0),
     shadersChangedFrameNumber_(M_MAX_UNSIGNED),
@@ -281,6 +295,7 @@ Renderer::Renderer(Context* context) :
     drawShadows_(true),
     reuseShadowMaps_(true),
     dynamicInstancing_(true),
+    numExtraInstancingBufferElements_(0),
     threadedOcclusion_(false),
     shadersDirty_(true),
     initialized_(false),
@@ -473,9 +488,18 @@ void Renderer::SetDynamicInstancing(bool enable)
     dynamicInstancing_ = enable;
 }
 
+void Renderer::SetNumExtraInstancingBufferElements(int elements)
+{
+    if (numExtraInstancingBufferElements_ != elements)
+    {
+        numExtraInstancingBufferElements_ = Clamp(elements, 0, MAX_EXTRA_INSTANCING_BUFFER_ELEMENTS);
+        CreateInstancingBuffer();
+    }
+}
+
 void Renderer::SetMinInstances(int instances)
 {
-    minInstances_ = Max(instances, 2);
+    minInstances_ = Max(instances, 1);
 }
 
 void Renderer::SetMaxSortedInstances(int instances)
@@ -686,8 +710,17 @@ void Renderer::Render()
     graphics_->SetDefaultTextureFilterMode(textureFilterMode_);
     graphics_->SetTextureAnisotropy((unsigned)textureAnisotropy_);
 
-    // If no views, just clear the screen
-    if (views_.Empty())
+    // If no views that render to the backbuffer, clear the screen so that e.g. the UI is not rendered on top of previous frame
+    bool hasBackbufferViews = false;
+    for (unsigned i = 0; i < views_.Size(); ++i)
+    {
+        if (!views_[i]->GetRenderTarget())
+        {
+            hasBackbufferViews = true;
+            break;
+        }
+    }
+    if (!hasBackbufferViews)
     {
         graphics_->SetBlendMode(BLEND_REPLACE);
         graphics_->SetColorWrite(true);
@@ -696,41 +729,36 @@ void Renderer::Render()
         graphics_->SetStencilTest(false);
         graphics_->ResetRenderTargets();
         graphics_->Clear(CLEAR_COLOR | CLEAR_DEPTH | CLEAR_STENCIL, defaultZone_->GetFogColor());
-
-        numPrimitives_ = 0;
-        numBatches_ = 0;
     }
-    else
+
+    // Render views from last to first. Each main (backbuffer) view is rendered after the auxiliary views it depends on
+    for (unsigned i = views_.Size() - 1; i < views_.Size(); --i)
     {
-        // Render views from last to first (each main view is rendered after the auxiliary views it depends on)
-        for (unsigned i = views_.Size() - 1; i < views_.Size(); --i)
-        {
-            if (!views_[i])
-                continue;
+        if (!views_[i])
+            continue;
 
-            using namespace BeginViewRender;
+        using namespace BeginViewRender;
 
-            RenderSurface* renderTarget = views_[i]->GetRenderTarget();
+        RenderSurface* renderTarget = views_[i]->GetRenderTarget();
 
-            VariantMap& eventData = GetEventDataMap();
-            eventData[P_VIEW] = views_[i];
-            eventData[P_SURFACE] = renderTarget;
-            eventData[P_TEXTURE] = (renderTarget ? renderTarget->GetParentTexture() : 0);
-            eventData[P_SCENE] = views_[i]->GetScene();
-            eventData[P_CAMERA] = views_[i]->GetCamera();
-            SendEvent(E_BEGINVIEWRENDER, eventData);
+        VariantMap& eventData = GetEventDataMap();
+        eventData[P_VIEW] = views_[i];
+        eventData[P_SURFACE] = renderTarget;
+        eventData[P_TEXTURE] = (renderTarget ? renderTarget->GetParentTexture() : 0);
+        eventData[P_SCENE] = views_[i]->GetScene();
+        eventData[P_CAMERA] = views_[i]->GetCamera();
+        SendEvent(E_BEGINVIEWRENDER, eventData);
 
-            // Screen buffers can be reused between views, as each is rendered completely
-            PrepareViewRender();
-            views_[i]->Render();
+        // Screen buffers can be reused between views, as each is rendered completely
+        PrepareViewRender();
+        views_[i]->Render();
 
-            SendEvent(E_ENDVIEWRENDER, eventData);
-        }
-
-        // Copy the number of batches & primitives from Graphics so that we can account for 3D geometry only
-        numPrimitives_ = graphics_->GetNumPrimitives();
-        numBatches_ = graphics_->GetNumBatches();
+        SendEvent(E_ENDVIEWRENDER, eventData);
     }
+
+    // Copy the number of batches & primitives from Graphics so that we can account for 3D geometry only
+    numPrimitives_ = graphics_->GetNumPrimitives();
+    numBatches_ = graphics_->GetNumBatches();
 
     // Remove unused occlusion buffers and renderbuffers
     RemoveUnusedBuffers();
@@ -846,7 +874,7 @@ Texture2D* Renderer::GetShadowMap(Light* light, Camera* camera, unsigned viewWid
         else
         {
             // Calculate spot light pixel size from the projection of its frustum far vertices
-            Frustum lightFrustum = light->GetFrustum().Transformed(view);
+            Frustum lightFrustum = light->GetViewSpaceFrustum(view);
             lightBox.Define(&lightFrustum.vertices_[4], 4);
         }
 
@@ -1327,11 +1355,12 @@ bool Renderer::ResizeInstancingBuffer(unsigned numInstances)
     while (newSize < numInstances)
         newSize <<= 1;
 
-    if (!instancingBuffer_->SetSize(newSize, INSTANCING_BUFFER_MASK, true))
+    const PODVector<VertexElement> instancingBufferElements = CreateInstancingBufferElements(numExtraInstancingBufferElements_);
+    if (!instancingBuffer_->SetSize(newSize, instancingBufferElements, true))
     {
         URHO3D_LOGERROR("Failed to resize instancing buffer to " + String(newSize));
         // If failed, try to restore the old size
-        instancingBuffer_->SetSize(oldSize, INSTANCING_BUFFER_MASK, true);
+        instancingBuffer_->SetSize(oldSize, instancingBufferElements, true);
         return false;
     }
 
@@ -1443,7 +1472,7 @@ const Rect& Renderer::GetLightScissor(Light* light, Camera* camera)
     assert(light->GetLightType() != LIGHT_DIRECTIONAL);
     if (light->GetLightType() == LIGHT_SPOT)
     {
-        Frustum viewFrustum(light->GetFrustum().Transformed(view));
+        Frustum viewFrustum(light->GetViewSpaceFrustum(view));
         return lightScissorCache_[combination] = viewFrustum.Projected(projection);
     }
     else // LIGHT_POINT
@@ -1850,7 +1879,8 @@ void Renderer::CreateInstancingBuffer()
     }
 
     instancingBuffer_ = new VertexBuffer(context_);
-    if (!instancingBuffer_->SetSize(INSTANCING_BUFFER_DEFAULT_SIZE, INSTANCING_BUFFER_MASK, true))
+    const PODVector<VertexElement> instancingBufferElements = CreateInstancingBufferElements(numExtraInstancingBufferElements_);
+    if (!instancingBuffer_->SetSize(INSTANCING_BUFFER_DEFAULT_SIZE, instancingBufferElements, true))
     {
         instancingBuffer_.Reset();
         dynamicInstancing_ = false;

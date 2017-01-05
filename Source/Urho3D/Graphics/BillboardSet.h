@@ -151,8 +151,6 @@ protected:
 
     /// Billboards.
     PODVector<Billboard> billboards_;
-    /// Coordinate axes on which camera facing is done.
-    Vector3 faceCameraAxes_;
     /// Animation LOD bias.
     float animationLodBias_;
     /// Animation LOD timer.
@@ -173,6 +171,8 @@ private:
     void UpdateBufferSize();
     /// Rewrite billboard vertex buffer.
     void UpdateVertexBuffer(const FrameInfo& frame);
+    /// Calculate billboard scale factors in fixed screen size mode.
+    void CalculateFixedScreenSize(const FrameInfo& frame);
 
     /// Geometry.
     SharedPtr<Geometry> geometry_;
@@ -192,12 +192,12 @@ private:
     bool geometryTypeUpdate_;
     /// Sorting flag. Triggers a vertex buffer rewrite for each view this billboard set is rendered from.
     bool sortThisFrame_;
+    /// Whether was last rendered from an ortho camera.
+    bool hasOrthoCamera_;
     /// Frame number on which was last sorted.
     unsigned sortFrameNumber_;
     /// Previous offset to camera for determining whether sorting is necessary.
     Vector3 previousOffset_;
-    /// Scale factor for fixed screen size mode.
-    float fixedScaleFactor_;
     /// Billboard pointers for sorting.
     Vector<Billboard*> sortedBillboards_;
     /// Attribute buffer for network replication.

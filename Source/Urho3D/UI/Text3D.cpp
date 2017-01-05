@@ -75,7 +75,7 @@ void Text3D::RegisterObject(Context* context)
     URHO3D_MIXED_ACCESSOR_ATTRIBUTE("Material", GetMaterialAttr, SetMaterialAttr, ResourceRef, ResourceRef(Material::GetTypeStatic()),
         AM_DEFAULT);
     URHO3D_ATTRIBUTE("Font Size", int, text_.fontSize_, DEFAULT_FONT_SIZE, AM_DEFAULT);
-    URHO3D_ATTRIBUTE("Text", String, text_.text_, String::EMPTY, AM_DEFAULT);
+    URHO3D_MIXED_ACCESSOR_ATTRIBUTE("Text", GetTextAttr, SetTextAttr, String, String::EMPTY, AM_DEFAULT);
     URHO3D_ENUM_ATTRIBUTE("Text Alignment", text_.textAlignment_, horizontalAlignments, HA_LEFT, AM_DEFAULT);
     URHO3D_ATTRIBUTE("Row Spacing", float, text_.rowSpacing_, 1.0f, AM_DEFAULT);
     URHO3D_ATTRIBUTE("Word Wrap", bool, text_.wordWrap_, false, AM_DEFAULT);
@@ -88,16 +88,16 @@ void Text3D::RegisterObject(Context* context)
         horizontalAlignments, HA_LEFT, AM_DEFAULT);
     URHO3D_ENUM_ACCESSOR_ATTRIBUTE("Vert Alignment", GetVerticalAlignment, SetVerticalAlignment, VerticalAlignment, verticalAlignments,
         VA_TOP, AM_DEFAULT);
-    URHO3D_ACCESSOR_ATTRIBUTE("Opacity", GetOpacity, SetOpacity, float, 1.0f, AM_FILE);
+    URHO3D_ACCESSOR_ATTRIBUTE("Opacity", GetOpacity, SetOpacity, float, 1.0f, AM_DEFAULT);
     URHO3D_ACCESSOR_ATTRIBUTE("Color", GetColorAttr, SetColor, Color, Color::WHITE, AM_DEFAULT);
     URHO3D_ATTRIBUTE("Top Left Color", Color, text_.color_[0], Color::WHITE, AM_DEFAULT);
     URHO3D_ATTRIBUTE("Top Right Color", Color, text_.color_[1], Color::WHITE, AM_DEFAULT);
     URHO3D_ATTRIBUTE("Bottom Left Color", Color, text_.color_[2], Color::WHITE, AM_DEFAULT);
     URHO3D_ATTRIBUTE("Bottom Right Color", Color, text_.color_[3], Color::WHITE, AM_DEFAULT);
     URHO3D_ENUM_ATTRIBUTE("Text Effect", text_.textEffect_, textEffects, TE_NONE, AM_DEFAULT);
-    URHO3D_ATTRIBUTE("Shadow Offset", IntVector2, text_.shadowOffset_, IntVector2(1, 1), AM_FILE);
-    URHO3D_ATTRIBUTE("Stroke Thickness", int, text_.strokeThickness_, 1, AM_FILE);
-    URHO3D_ATTRIBUTE("Round Stroke", bool, text_.roundStroke_, false, AM_FILE);
+    URHO3D_ATTRIBUTE("Shadow Offset", IntVector2, text_.shadowOffset_, IntVector2(1, 1), AM_DEFAULT);
+    URHO3D_ATTRIBUTE("Stroke Thickness", int, text_.strokeThickness_, 1, AM_DEFAULT);
+    URHO3D_ATTRIBUTE("Round Stroke", bool, text_.roundStroke_, false, AM_DEFAULT);
     URHO3D_ACCESSOR_ATTRIBUTE("Effect Color", GetEffectColor, SetEffectColor, Color, Color::BLACK, AM_DEFAULT);
     URHO3D_ATTRIBUTE("Effect Depth Bias", float, text_.effectDepthBias_, DEFAULT_EFFECT_DEPTH_BIAS, AM_DEFAULT);
     URHO3D_COPY_BASE_ATTRIBUTES(Drawable);
@@ -116,29 +116,7 @@ void Text3D::UpdateBatches(const FrameInfo& frame)
     distance_ = frame.camera_->GetDistance(GetWorldBoundingBox().Center());
 
     if (faceCameraMode_ != FC_NONE || fixedScreenSize_)
-    {
-        Vector3 worldPosition = node_->GetWorldPosition();
-        Vector3 worldScale = node_->GetWorldScale();
-
-        if (fixedScreenSize_)
-        {
-            float textScaling = 2.0f / TEXT_SCALING / frame.viewSize_.y_;
-            float halfViewWorldSize = frame.camera_->GetHalfViewSize();
-
-            if (!frame.camera_->IsOrthographic())
-            {
-                Matrix4 viewProj(frame.camera_->GetProjection(false) * frame.camera_->GetView());
-                Vector4 projPos(viewProj * Vector4(worldPosition, 1.0f));
-                worldScale *= textScaling * halfViewWorldSize * projPos.w_;
-            }
-            else
-                worldScale *= textScaling * halfViewWorldSize;
-        }
-
-        customWorldTransform_ = Matrix3x4(worldPosition, frame.camera_->GetFaceCameraRotation(
-            worldPosition, node_->GetWorldRotation(), faceCameraMode_), worldScale);
-        worldBoundingBoxDirty_ = true;
-    }
+        CalculateFixedScreenSize(frame);
 
     for (unsigned i = 0; i < batches_.Size(); ++i)
     {
@@ -166,6 +144,10 @@ void Text3D::UpdateGeometry(const FrameInfo& frame)
         fontDataLost_ = false;
     }
 
+    // In case is being rendered from multiple views, recalculate camera facing & fixed size
+    if (faceCameraMode_ != FC_NONE || fixedScreenSize_)
+        CalculateFixedScreenSize(frame);
+
     if (geometryDirty_)
     {
         for (unsigned i = 0; i < batches_.Size() && i < uiBatches_.Size(); ++i)
@@ -189,7 +171,7 @@ void Text3D::UpdateGeometry(const FrameInfo& frame)
 
 UpdateGeometryType Text3D::GetUpdateGeometryType()
 {
-    if (geometryDirty_ || fontDataLost_ || vertexBuffer_->IsDataLost())
+    if (geometryDirty_ || fontDataLost_ || vertexBuffer_->IsDataLost() || faceCameraMode_ != FC_NONE || fixedScreenSize_)
         return UPDATE_MAIN_THREAD;
     else
         return UPDATE_NONE;
@@ -218,6 +200,17 @@ bool Text3D::SetFont(const String& fontName, int size)
 bool Text3D::SetFont(Font* font, int size)
 {
     bool success = text_.SetFont(font, size);
+
+    MarkTextDirty();
+    UpdateTextBatches();
+    UpdateTextMaterials();
+
+    return success;
+}
+
+bool Text3D::SetFontSize(int size)
+{
+    bool success = text_.SetFontSize(size);
 
     MarkTextDirty();
     UpdateTextBatches();
@@ -549,6 +542,16 @@ void Text3D::SetFontAttr(const ResourceRef& value)
     text_.font_ = cache->GetResource<Font>(value.name_);
 }
 
+void Text3D::SetTextAttr(const String& value)
+{
+    text_.SetTextAttr(value);
+}
+
+String Text3D::GetTextAttr() const
+{
+    return text_.GetTextAttr();
+}
+
 ResourceRef Text3D::GetMaterialAttr() const
 {
     return GetResourceRef(material_, Material::GetTypeStatic());
@@ -696,6 +699,31 @@ void Text3D::UpdateTextMaterials(bool forceUpdate)
             }
         }
     }
+}
+
+void Text3D::CalculateFixedScreenSize(const FrameInfo& frame)
+{
+    Vector3 worldPosition = node_->GetWorldPosition();
+    Vector3 worldScale = node_->GetWorldScale();
+
+    if (fixedScreenSize_)
+    {
+        float textScaling = 2.0f / TEXT_SCALING / frame.viewSize_.y_;
+        float halfViewWorldSize = frame.camera_->GetHalfViewSize();
+
+        if (!frame.camera_->IsOrthographic())
+        {
+            Matrix4 viewProj(frame.camera_->GetProjection(false) * frame.camera_->GetView());
+            Vector4 projPos(viewProj * Vector4(worldPosition, 1.0f));
+            worldScale *= textScaling * halfViewWorldSize * projPos.w_;
+        }
+        else
+            worldScale *= textScaling * halfViewWorldSize;
+    }
+
+    customWorldTransform_ = Matrix3x4(worldPosition, frame.camera_->GetFaceCameraRotation(
+        worldPosition, node_->GetWorldRotation(), faceCameraMode_), worldScale);
+    worldBoundingBoxDirty_ = true;
 }
 
 }

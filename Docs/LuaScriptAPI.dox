@@ -156,6 +156,7 @@ namespace Urho3D
 <a href="#Class_ResourceCache"><b>ResourceCache</b></a>
 <a href="#Class_ResourceRef"><b>ResourceRef</b></a>
 <a href="#Class_ResourceRefList"><b>ResourceRefList</b></a>
+<a href="#Class_RibbonTrail"><b>RibbonTrail</b></a>
 <a href="#Class_RigidBody"><b>RigidBody</b></a>
 <a href="#Class_RigidBody2D"><b>RigidBody2D</b></a>
 <a href="#Class_Scene"><b>Scene</b></a>
@@ -4223,6 +4224,7 @@ Methods:
 - void SetTextureFrame(unsigned index, const TextureFrame& textureFrame)
 - void SetNumTextureFrames(unsigned number)
 - void SortTextureFrames()
+- ParticleEffect* Clone(const String cloneName = String::EMPTY) const
 - Material* GetMaterial() const
 - unsigned GetNumParticles() const
 - bool GetUpdateInvisible() const
@@ -4295,6 +4297,10 @@ Properties:
 
 <a name="Class_ParticleEffect2D"></a>
 ### ParticleEffect2D : Resource
+
+Methods:
+
+- ParticleEffect2D* Clone(const String cloneName = String::EMPTY) const
 
 <a name="Class_ParticleEmitter"></a>
 ### ParticleEmitter : BillboardSet
@@ -4852,6 +4858,7 @@ Properties:
 - bool markToStencil
 - bool useLitBase
 - bool vertexLights
+- String eventName
 
 <a name="Class_RenderSurface"></a>
 ### RenderSurface
@@ -4938,6 +4945,7 @@ Methods:
 - void SetReuseShadowMaps(bool enable)
 - void SetMaxShadowMaps(int shadowMaps)
 - void SetDynamicInstancing(bool enable)
+- void SetNumExtraInstancingBufferElements(int elements)
 - void SetMinInstances(int instances)
 - void SetMaxSortedInstances(int instances)
 - void SetMaxOccluderTriangles(int triangles)
@@ -4966,6 +4974,7 @@ Methods:
 - bool GetReuseShadowMaps() const
 - int GetMaxShadowMaps() const
 - bool GetDynamicInstancing() const
+- int GetNumExtraInstancingBufferElements() const
 - int GetMinInstances() const
 - int GetMaxSortedInstances() const
 - int GetMaxOccluderTriangles() const
@@ -5006,6 +5015,7 @@ Properties:
 - bool reuseShadowMaps
 - int maxShadowMaps
 - bool dynamicInstancing
+- int numExtraInstancingBufferElements
 - int minInstances
 - int maxSortedInstances
 - int maxOccluderTriangles
@@ -5127,6 +5137,58 @@ Methods:
 Properties:
 
 - StringHash type
+
+<a name="Class_RibbonTrail"></a>
+### RibbonTrail : Drawable
+
+Methods:
+
+- void SetMaterial(Material* material)
+- void SetVertexDistance(float length)
+- void SetWidth(float width)
+- void SetStartColor(const Color& c)
+- void SetEndColor(const Color& c)
+- void SetStartScale(float startScale)
+- void SetEndScale(float endScale)
+- void SetTrailType(TrailType type)
+- void SetSorted(bool enable)
+- void SetLifetime(float time)
+- void SetEmitting(bool emitting)
+- void SetUpdateInvisible(bool updateInvisible)
+- void SetTailColumn(unsigned tailColumn)
+- void SetAnimationLodBias(float bias)
+- void Commit()
+- Material* GetMaterial() const
+- float GetVertexDistance() const
+- float GetWidth() const
+- const Color& GetStartColor() const
+- const Color& GetEndColor() const
+- float GetStartScale() const
+- float GetEndScale() const
+- TrailType GetTrailType() const
+- bool IsSorted() const
+- float GetLifetime() const
+- unsigned GetTailColumn() const
+- bool IsEmitting() const
+- bool GetUpdateInvisible() const
+- float GetAnimationLodBias() const
+
+Properties:
+
+- Material* material
+- float vertexDistance
+- float width
+- Color& startColor
+- Color& endColor
+- float startScale
+- float endScale
+- TrailType trailType
+- bool sorted
+- float lifetime
+- unsigned tailColumn
+- bool emitting
+- bool updateInvisible
+- float animationLodBias
 
 <a name="Class_RigidBody"></a>
 ### RigidBody : Component
@@ -6107,6 +6169,7 @@ Methods:
 - void delete()
 - bool SetFont(const String fontName, int size = DEFAULT_FONT_SIZE)
 - bool SetFont(Font* font, int size = DEFAULT_FONT_SIZE)
+- bool SetFontSize(int size)
 - void SetText(const String text)
 - void SetTextAlignment(HorizontalAlignment align)
 - void SetRowSpacing(float spacing)
@@ -6149,7 +6212,7 @@ Methods:
 Properties:
 
 - Font* font
-- int fontSize (readonly)
+- int fontSize
 - String text
 - HorizontalAlignment textAlignment
 - float rowSpacing
@@ -6178,6 +6241,7 @@ Methods:
 - void delete()
 - bool SetFont(const String fontName, int size = DEFAULT_FONT_SIZE)
 - bool SetFont(Font* font, int size = DEFAULT_FONT_SIZE)
+- bool SetFontSize(int size)
 - void SetMaterial(Material* material)
 - void SetText(const String text)
 - void SetAlignment(HorizontalAlignment hAlign, VerticalAlignment vAlign)
@@ -6229,7 +6293,7 @@ Properties:
 
 - Font* font
 - Material* material
-- int fontSize (readonly)
+- int fontSize
 - String text
 - HorizontalAlignment textAlignment
 - HorizontalAlignment horizontalAlignment
@@ -7815,6 +7879,7 @@ Properties:
 - int O_ORTHOGONAL
 - int O_ISOMETRIC
 - int O_STAGGERED
+- int O_HEXAGONAL
 
 ### PassLightingMode
 
@@ -7852,6 +7917,7 @@ Properties:
 - int CMD_FORWARDLIGHTS
 - int CMD_LIGHTVOLUMES
 - int CMD_RENDERUI
+- int CMD_SENDEVENT
 
 ### RenderSurfaceUpdateMode
 
@@ -7961,6 +8027,11 @@ Properties:
 - int OT_POLYLINE
 - int OT_TILE
 - int OT_INVALID
+
+### TrailType
+
+- int TT_FACE_CAMERA
+- int TT_BONE
 
 ### TransformSpace
 
@@ -8279,7 +8350,7 @@ Properties:
 - int KEY_DOWN
 - int KEY_E
 - int KEY_END
-- int KEY_ESC
+- int KEY_ESCAPE
 - int KEY_F
 - int KEY_F1
 - int KEY_F10
