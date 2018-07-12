@@ -1,6 +1,6 @@
 /*
   Simple DirectMedia Layer
-  Copyright (C) 1997-2016 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2017 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -36,6 +36,7 @@
 #include "SDL_windowsvideo.h"
 #include "SDL_windowsframebuffer.h"
 #include "SDL_windowsshape.h"
+#include "SDL_windowsvulkan.h"
 
 /* Initialization/Query functions */
 static int WIN_VideoInit(_THIS);
@@ -45,7 +46,8 @@ static void WIN_VideoQuit(_THIS);
 SDL_bool g_WindowsEnableMessageLoop = SDL_TRUE;
 SDL_bool g_WindowFrameUsableWhileCursorHidden = SDL_TRUE;
 
-static void UpdateWindowsEnableMessageLoop(void *userdata, const char *name, const char *oldValue, const char *newValue)
+static void SDLCALL
+UpdateWindowsEnableMessageLoop(void *userdata, const char *name, const char *oldValue, const char *newValue)
 {
     if (newValue && *newValue == '0') {
         g_WindowsEnableMessageLoop = SDL_FALSE;
@@ -54,7 +56,8 @@ static void UpdateWindowsEnableMessageLoop(void *userdata, const char *name, con
     }
 }
 
-static void UpdateWindowFrameUsableWhileCursorHidden(void *userdata, const char *name, const char *oldValue, const char *newValue)
+static void SDLCALL
+UpdateWindowFrameUsableWhileCursorHidden(void *userdata, const char *name, const char *oldValue, const char *newValue)
 {
     if (newValue && *newValue == '0') {
         g_WindowFrameUsableWhileCursorHidden = SDL_FALSE;
@@ -121,29 +124,34 @@ WIN_CreateDevice(int devindex)
         data->SetProcessDPIAware = (BOOL (WINAPI *)()) SDL_LoadFunction(data->userDLL, "SetProcessDPIAware");
         if (data->SetProcessDPIAware)
             data->SetProcessDPIAware();
+    } else {
+        SDL_ClearError();
     }
 
     data->shcoreDLL = SDL_LoadObject("SHCORE.DLL");
     if (data->shcoreDLL) {
         data->GetDpiForMonitor = (HRESULT (WINAPI *)(HMONITOR, MONITOR_DPI_TYPE, UINT *, UINT *)) SDL_LoadFunction(data->shcoreDLL, "GetDpiForMonitor");
+    } else {
+        SDL_ClearError();
     }
 
     /* Set the function pointers */
     device->VideoInit = WIN_VideoInit;
     device->VideoQuit = WIN_VideoQuit;
     device->GetDisplayBounds = WIN_GetDisplayBounds;
+    device->GetDisplayUsableBounds = WIN_GetDisplayUsableBounds;
     device->GetDisplayDPI = WIN_GetDisplayDPI;
     device->GetDisplayModes = WIN_GetDisplayModes;
     device->SetDisplayMode = WIN_SetDisplayMode;
     device->PumpEvents = WIN_PumpEvents;
 
-#undef CreateWindow
-    device->CreateWindow = WIN_CreateWindow;
-    device->CreateWindowFrom = WIN_CreateWindowFrom;
+    device->CreateSDLWindow = WIN_CreateWindow;
+    device->CreateSDLWindowFrom = WIN_CreateWindowFrom;
     device->SetWindowTitle = WIN_SetWindowTitle;
     device->SetWindowIcon = WIN_SetWindowIcon;
     device->SetWindowPosition = WIN_SetWindowPosition;
     device->SetWindowSize = WIN_SetWindowSize;
+    device->SetWindowOpacity = WIN_SetWindowOpacity;
     device->ShowWindow = WIN_ShowWindow;
     device->HideWindow = WIN_HideWindow;
     device->RaiseWindow = WIN_RaiseWindow;
@@ -151,6 +159,7 @@ WIN_CreateDevice(int devindex)
     device->MinimizeWindow = WIN_MinimizeWindow;
     device->RestoreWindow = WIN_RestoreWindow;
     device->SetWindowBordered = WIN_SetWindowBordered;
+    device->SetWindowResizable = WIN_SetWindowResizable;
     device->SetWindowFullscreen = WIN_SetWindowFullscreen;
     device->SetWindowGammaRamp = WIN_SetWindowGammaRamp;
     device->GetWindowGammaRamp = WIN_GetWindowGammaRamp;
@@ -189,6 +198,13 @@ WIN_CreateDevice(int devindex)
     device->GL_SwapWindow = WIN_GLES_SwapWindow;
     device->GL_DeleteContext = WIN_GLES_DeleteContext;
 #endif
+#if SDL_VIDEO_VULKAN
+    device->Vulkan_LoadLibrary = WIN_Vulkan_LoadLibrary;
+    device->Vulkan_UnloadLibrary = WIN_Vulkan_UnloadLibrary;
+    device->Vulkan_GetInstanceExtensions = WIN_Vulkan_GetInstanceExtensions;
+    device->Vulkan_CreateSurface = WIN_Vulkan_CreateSurface;
+#endif
+
     device->StartTextInput = WIN_StartTextInput;
     device->StopTextInput = WIN_StopTextInput;
     device->SetTextInputRect = WIN_SetTextInputRect;

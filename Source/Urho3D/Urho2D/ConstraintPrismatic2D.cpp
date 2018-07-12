@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -41,9 +41,7 @@ ConstraintPrismatic2D::ConstraintPrismatic2D(Context* context) :
 {
 }
 
-ConstraintPrismatic2D::~ConstraintPrismatic2D()
-{
-}
+ConstraintPrismatic2D::~ConstraintPrismatic2D() = default;
 
 void ConstraintPrismatic2D::RegisterObject(Context* context)
 {
@@ -90,7 +88,11 @@ void ConstraintPrismatic2D::SetEnableLimit(bool enableLimit)
 
     jointDef_.enableLimit = enableLimit;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2PrismaticJoint*>(joint_)->EnableLimit(enableLimit);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -101,7 +103,11 @@ void ConstraintPrismatic2D::SetLowerTranslation(float lowerTranslation)
 
     jointDef_.lowerTranslation = lowerTranslation;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2PrismaticJoint*>(joint_)->SetLimits(lowerTranslation, jointDef_.upperTranslation);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -112,7 +118,11 @@ void ConstraintPrismatic2D::SetUpperTranslation(float upperTranslation)
 
     jointDef_.upperTranslation = upperTranslation;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2PrismaticJoint*>(joint_)->SetLimits(jointDef_.lowerTranslation, upperTranslation);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -123,7 +133,11 @@ void ConstraintPrismatic2D::SetEnableMotor(bool enableMotor)
 
     jointDef_.enableMotor = enableMotor;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2PrismaticJoint*>(joint_)->EnableMotor(enableMotor);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -134,7 +148,11 @@ void ConstraintPrismatic2D::SetMaxMotorForce(float maxMotorForce)
 
     jointDef_.maxMotorForce = maxMotorForce;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2PrismaticJoint*>(joint_)->SetMaxMotorForce(maxMotorForce);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -145,19 +163,23 @@ void ConstraintPrismatic2D::SetMotorSpeed(float motorSpeed)
 
     jointDef_.motorSpeed = motorSpeed;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2PrismaticJoint*>(joint_)->SetMotorSpeed(motorSpeed);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
 b2JointDef* ConstraintPrismatic2D::GetJointDef()
 {
     if (!ownerBody_ || !otherBody_)
-        return 0;
+        return nullptr;
 
     b2Body* bodyA = ownerBody_->GetBody();
     b2Body* bodyB = otherBody_->GetBody();
     if (!bodyA || !bodyB)
-        return 0;
+        return nullptr;
 
     jointDef_.Initialize(bodyA, bodyB, ToB2Vec2(anchor_), ToB2Vec2(axis_));
 

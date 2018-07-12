@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -44,18 +44,23 @@
 namespace Urho3D
 {
 
+const char* autoRemoveModeNames[] = {
+    "Disabled",
+    "Component",
+    "Node",
+    nullptr
+};
+
 Component::Component(Context* context) :
     Animatable(context),
-    node_(0),
+    node_(nullptr),
     id_(0),
     networkUpdate_(false),
     enabled_(true)
 {
 }
 
-Component::~Component()
-{
-}
+Component::~Component() = default;
 
 bool Component::Save(Serializer& dest) const
 {
@@ -93,7 +98,7 @@ bool Component::SaveJSON(JSONValue& dest) const
 
 void Component::MarkNetworkUpdate()
 {
-    if (!networkUpdate_ && id_ < FIRST_LOCAL_ID)
+    if (!networkUpdate_ && IsReplicated())
     {
         Scene* scene = GetScene();
         if (scene)
@@ -142,9 +147,14 @@ void Component::Remove()
         node_->RemoveComponent(this);
 }
 
+bool Component::IsReplicated() const
+{
+    return Scene::IsReplicatedID(id_);
+}
+
 Scene* Component::GetScene() const
 {
-    return node_ ? node_->GetScene() : 0;
+    return node_ ? node_->GetScene() : nullptr;
 }
 
 void Component::AddReplicationState(ComponentReplicationState* state)
@@ -166,16 +176,6 @@ void Component::PrepareNetworkUpdate()
 
     unsigned numAttributes = attributes->Size();
 
-    if (networkState_->currentValues_.Size() != numAttributes)
-    {
-        networkState_->currentValues_.Resize(numAttributes);
-        networkState_->previousValues_.Resize(numAttributes);
-
-        // Copy the default attribute values to the previous state as a starting point
-        for (unsigned i = 0; i < numAttributes; ++i)
-            networkState_->previousValues_[i] = attributes->At(i).defaultValue_;
-    }
-
     // Check for attribute changes
     for (unsigned i = 0; i < numAttributes; ++i)
     {
@@ -194,7 +194,7 @@ void Component::PrepareNetworkUpdate()
             for (PODVector<ReplicationState*>::Iterator j = networkState_->replicationStates_.Begin();
                  j != networkState_->replicationStates_.End(); ++j)
             {
-                ComponentReplicationState* compState = static_cast<ComponentReplicationState*>(*j);
+                auto* compState = static_cast<ComponentReplicationState*>(*j);
                 compState->dirtyAttributes_.Set(i);
 
                 // Add component's parent node to the dirty set if not added yet
@@ -264,7 +264,7 @@ void Component::SetNode(Node* node)
 
 Component* Component::GetComponent(StringHash type) const
 {
-    return node_ ? node_->GetComponent(type) : 0;
+    return node_ ? node_->GetComponent(type) : nullptr;
 }
 
 bool Component::IsEnabledEffective() const
@@ -289,7 +289,7 @@ void Component::HandleAttributeAnimationUpdate(StringHash eventType, VariantMap&
 
 Component* Component::GetFixedUpdateSource()
 {
-    Component* ret = 0;
+    Component* ret = nullptr;
     Scene* scene = GetScene();
 
     if (scene)
@@ -304,6 +304,24 @@ Component* Component::GetFixedUpdateSource()
     }
 
     return ret;
+}
+
+void Component::DoAutoRemove(AutoRemoveMode mode)
+{
+    switch (mode)
+    {
+    case REMOVE_COMPONENT:
+        Remove();
+        return;
+
+    case REMOVE_NODE:
+        if (node_)
+            node_->Remove();
+        return;
+
+    default:
+        return;
+    }
 }
 
 }

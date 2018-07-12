@@ -71,7 +71,7 @@ function InitWindow()
     ui.root:AddChild(window)
 
     -- Set Window size and layout settings
-    window.minWidth = 384;
+    window.minWidth = 384
     window:SetLayout(LM_VERTICAL, 6, IntRect(6, 6, 6, 6))
     window:SetAlignment(HA_CENTER, VA_CENTER)
     window:SetName("Window")
@@ -136,7 +136,7 @@ function CreateDraggableFish()
     -- See "Event list" in documentation's Main Page for reference on available Events and their eventData
     SubscribeToEvent(draggableFish, "DragBegin",
         function (eventType, eventData)
-            -- Get UIElement relative position where input (touch or click) occured (top-left = IntVector2(0,0))
+            -- Get UIElement relative position where input (touch or click) occurred (top-left = IntVector2(0,0))
             dragBeginPosition = IntVector2(eventData["ElementX"]:GetInt(), eventData["ElementY"]:GetInt())
         end)
 

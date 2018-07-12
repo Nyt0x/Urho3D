@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -22,14 +22,13 @@
 
 #pragma once
 
-#include "../IO/Deserializer.h"
-#include "../IO/Serializer.h"
+#include "../IO/AbstractFile.h"
 
 namespace Urho3D
 {
 
 /// Memory area that can be read and written to as a stream.
-class URHO3D_API MemoryBuffer : public Deserializer, public Serializer
+class URHO3D_API MemoryBuffer : public AbstractFile
 {
 public:
     /// Construct with a pointer and size.
@@ -37,16 +36,16 @@ public:
     /// Construct as read-only with a pointer and size.
     MemoryBuffer(const void* data, unsigned size);
     /// Construct from a vector, which must not go out of scope before MemoryBuffer.
-    MemoryBuffer(PODVector<unsigned char>& data);
+    explicit MemoryBuffer(PODVector<unsigned char>& data);
     /// Construct from a read-only vector, which must not go out of scope before MemoryBuffer.
-    MemoryBuffer(const PODVector<unsigned char>& data);
+    explicit MemoryBuffer(const PODVector<unsigned char>& data);
 
     /// Read bytes from the memory area. Return number of bytes actually read.
-    virtual unsigned Read(void* dest, unsigned size);
-    /// Set position from the beginning of the memory area.
-    virtual unsigned Seek(unsigned position);
+    unsigned Read(void* dest, unsigned size) override;
+    /// Set position from the beginning of the memory area. Return actual new position.
+    unsigned Seek(unsigned position) override;
     /// Write bytes to the memory area.
-    virtual unsigned Write(const void* data, unsigned size);
+    unsigned Write(const void* data, unsigned size) override;
 
     /// Return memory area.
     unsigned char* GetData() { return buffer_; }

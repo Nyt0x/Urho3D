@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -41,7 +41,7 @@ static const char* addressModeNames[] =
     "mirror",
     "clamp",
     "border",
-    0
+    nullptr
 };
 
 static const char* filterModeNames[] =
@@ -50,36 +50,18 @@ static const char* filterModeNames[] =
     "bilinear",
     "trilinear",
     "anisotropic",
+    "nearestanisotropic",
     "default",
-    0
+    nullptr
 };
 
 Texture::Texture(Context* context) :
-    Resource(context),
-    GPUObject(GetSubsystem<Graphics>()),
-    shaderResourceView_(0),
-    sampler_(0),
-    format_(0),
-    usage_(TEXTURE_STATIC),
-    levels_(0),
-    requestedLevels_(0),
-    width_(0),
-    height_(0),
-    depth_(0),
-    shadowCompare_(false),
-    filterMode_(FILTER_DEFAULT),
-    sRGB_(false),
-    parametersDirty_(true)
+    ResourceWithMetadata(context),
+    GPUObject(GetSubsystem<Graphics>())
 {
-    for (int i = 0; i < MAX_COORDS; ++i)
-        addressMode_[i] = ADDRESS_WRAP;
-    for (int i = 0; i < MAX_TEXTURE_QUALITY_LEVELS; ++i)
-        mipsToSkip_[i] = (unsigned)(MAX_TEXTURE_QUALITY_LEVELS - 1 - i);
 }
 
-Texture::~Texture()
-{
-}
+Texture::~Texture() = default;
 
 void Texture::SetNumLevels(unsigned levels)
 {
@@ -97,7 +79,13 @@ void Texture::SetFilterMode(TextureFilterMode mode)
 
 void Texture::SetAddressMode(TextureCoordinate coord, TextureAddressMode mode)
 {
-    addressMode_[coord] = mode;
+    addressModes_[coord] = mode;
+    parametersDirty_ = true;
+}
+
+void Texture::SetAnisotropy(unsigned level)
+{
+    anisotropy_ = level;
     parametersDirty_ = true;
 }
 
@@ -162,7 +150,7 @@ int Texture::GetLevelDepth(unsigned level) const
 unsigned Texture::GetDataSize(int width, int height) const
 {
     if (IsCompressed())
-        return GetRowDataSize(width) * ((height + 3) >> 2);
+        return GetRowDataSize(width) * ((height + 3) >> 2u);
     else
         return GetRowDataSize(width) * height;
 }
@@ -191,8 +179,8 @@ void Texture::SetParameters(XMLFile* file)
 
 void Texture::SetParameters(const XMLElement& element)
 {
-    XMLElement paramElem = element.GetChild();
-    while (paramElem)
+    LoadMetadataFromXML(element);
+    for (XMLElement paramElem = element.GetChild(); paramElem; paramElem = paramElem.GetNext())
     {
         String name = paramElem.GetName();
 
@@ -201,7 +189,7 @@ void Texture::SetParameters(const XMLElement& element)
             String coord = paramElem.GetAttributeLower("coord");
             if (coord.Length() >= 1)
             {
-                TextureCoordinate coordIndex = (TextureCoordinate)(coord[0] - 'u');
+                auto coordIndex = (TextureCoordinate)(coord[0] - 'u');
                 String mode = paramElem.GetAttributeLower("mode");
                 SetAddressMode(coordIndex, (TextureAddressMode)GetStringListIndex(mode.CString(), addressModeNames, ADDRESS_WRAP));
             }
@@ -214,6 +202,8 @@ void Texture::SetParameters(const XMLElement& element)
         {
             String mode = paramElem.GetAttributeLower("mode");
             SetFilterMode((TextureFilterMode)GetStringListIndex(mode.CString(), filterModeNames, FILTER_DEFAULT));
+            if (paramElem.HasAttribute("anisotropy"))
+                SetAnisotropy(paramElem.GetUInt("anisotropy"));
         }
 
         if (name == "mipmap")
@@ -233,8 +223,6 @@ void Texture::SetParameters(const XMLElement& element)
 
         if (name == "srgb")
             SetSRGB(paramElem.GetBool("enable"));
-
-        paramElem = paramElem.GetNext();
     }
 }
 
@@ -243,14 +231,20 @@ void Texture::SetParametersDirty()
     parametersDirty_ = true;
 }
 
+void Texture::SetLevelsDirty()
+{
+    if (usage_ == TEXTURE_RENDERTARGET && levels_ > 1)
+        levelsDirty_ = true;
+}
+
 unsigned Texture::CheckMaxLevels(int width, int height, unsigned requestedLevels)
 {
     unsigned maxLevels = 1;
     while (width > 1 || height > 1)
     {
         ++maxLevels;
-        width = width > 1 ? (width >> 1) : 1;
-        height = height > 1 ? (height >> 1) : 1;
+        width = width > 1 ? (width >> 1u) : 1;
+        height = height > 1 ? (height >> 1u) : 1;
     }
 
     if (!requestedLevels || maxLevels < requestedLevels)
@@ -265,9 +259,9 @@ unsigned Texture::CheckMaxLevels(int width, int height, int depth, unsigned requ
     while (width > 1 || height > 1 || depth > 1)
     {
         ++maxLevels;
-        width = width > 1 ? (width >> 1) : 1;
-        height = height > 1 ? (height >> 1) : 1;
-        depth = depth > 1 ? (depth >> 1) : 1;
+        width = width > 1 ? (width >> 1u) : 1;
+        height = height > 1 ? (height >> 1u) : 1;
+        depth = depth > 1 ? (depth >> 1u) : 1;
     }
 
     if (!requestedLevels || maxLevels < requestedLevels)
@@ -278,7 +272,7 @@ unsigned Texture::CheckMaxLevels(int width, int height, int depth, unsigned requ
 
 void Texture::CheckTextureBudget(StringHash type)
 {
-    ResourceCache* cache = GetSubsystem<ResourceCache>();
+    auto* cache = GetSubsystem<ResourceCache>();
     unsigned long long textureBudget = cache->GetMemoryBudget(type);
     unsigned long long textureUse = cache->GetMemoryUse(type);
     if (!textureBudget)

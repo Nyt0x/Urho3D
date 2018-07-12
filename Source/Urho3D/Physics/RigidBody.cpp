@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -56,16 +56,13 @@ static const char* collisionEventModeNames[] =
     "Never",
     "When Active",
     "Always",
-    0
+    nullptr
 };
 
 extern const char* PHYSICS_CATEGORY;
 
 RigidBody::RigidBody(Context* context) :
     Component(context),
-    body_(0),
-    compoundShape_(0),
-    shiftedCompoundShape_(0),
     gravityOverride_(Vector3::ZERO),
     centerOfMass_(Vector3::ZERO),
     mass_(DEFAULT_MASS),
@@ -92,11 +89,6 @@ RigidBody::~RigidBody()
 
     if (physicsWorld_)
         physicsWorld_->RemoveRigidBody(this);
-
-    delete compoundShape_;
-    compoundShape_ = 0;
-    delete shiftedCompoundShape_;
-    shiftedCompoundShape_ = 0;
 }
 
 void RigidBody::RegisterObject(Context* context)
@@ -106,7 +98,7 @@ void RigidBody::RegisterObject(Context* context)
     URHO3D_ACCESSOR_ATTRIBUTE("Is Enabled", IsEnabled, SetEnabled, bool, true, AM_DEFAULT);
     URHO3D_MIXED_ACCESSOR_ATTRIBUTE("Physics Rotation", GetRotation, SetRotation, Quaternion, Quaternion::IDENTITY, AM_FILE | AM_NOEDIT);
     URHO3D_MIXED_ACCESSOR_ATTRIBUTE("Physics Position", GetPosition, SetPosition, Vector3, Vector3::ZERO, AM_FILE | AM_NOEDIT);
-    URHO3D_ATTRIBUTE("Mass", float, mass_, DEFAULT_MASS, AM_DEFAULT);
+    URHO3D_ATTRIBUTE_EX("Mass", float, mass_, MarkBodyDirty, DEFAULT_MASS, AM_DEFAULT);
     URHO3D_ACCESSOR_ATTRIBUTE("Friction", GetFriction, SetFriction, float, DEFAULT_FRICTION, AM_DEFAULT);
     URHO3D_MIXED_ACCESSOR_ATTRIBUTE("Anisotropic Friction", GetAnisotropicFriction, SetAnisotropicFriction, Vector3, Vector3::ONE,
         AM_DEFAULT);
@@ -121,28 +113,19 @@ void RigidBody::RegisterObject(Context* context)
     URHO3D_ACCESSOR_ATTRIBUTE("Angular Damping", GetAngularDamping, SetAngularDamping, float, 0.0f, AM_DEFAULT);
     URHO3D_ACCESSOR_ATTRIBUTE("Linear Rest Threshold", GetLinearRestThreshold, SetLinearRestThreshold, float, 0.8f, AM_DEFAULT);
     URHO3D_ACCESSOR_ATTRIBUTE("Angular Rest Threshold", GetAngularRestThreshold, SetAngularRestThreshold, float, 1.0f, AM_DEFAULT);
-    URHO3D_ATTRIBUTE("Collision Layer", int, collisionLayer_, DEFAULT_COLLISION_LAYER, AM_DEFAULT);
-    URHO3D_ATTRIBUTE("Collision Mask", int, collisionMask_, DEFAULT_COLLISION_MASK, AM_DEFAULT);
+    URHO3D_ATTRIBUTE_EX("Collision Layer", int, collisionLayer_, MarkBodyDirty, DEFAULT_COLLISION_LAYER, AM_DEFAULT);
+    URHO3D_ATTRIBUTE_EX("Collision Mask", int, collisionMask_, MarkBodyDirty, DEFAULT_COLLISION_MASK, AM_DEFAULT);
     URHO3D_ACCESSOR_ATTRIBUTE("Contact Threshold", GetContactProcessingThreshold, SetContactProcessingThreshold, float, BT_LARGE_FLOAT,
         AM_DEFAULT);
     URHO3D_ACCESSOR_ATTRIBUTE("CCD Radius", GetCcdRadius, SetCcdRadius, float, 0.0f, AM_DEFAULT);
     URHO3D_ACCESSOR_ATTRIBUTE("CCD Motion Threshold", GetCcdMotionThreshold, SetCcdMotionThreshold, float, 0.0f, AM_DEFAULT);
     URHO3D_ACCESSOR_ATTRIBUTE("Network Angular Velocity", GetNetAngularVelocityAttr, SetNetAngularVelocityAttr, PODVector<unsigned char>,
         Variant::emptyBuffer, AM_NET | AM_LATESTDATA | AM_NOEDIT);
-    URHO3D_ENUM_ATTRIBUTE("Collision Event Mode", collisionEventMode_, collisionEventModeNames, COLLISION_ACTIVE, AM_DEFAULT);
+    URHO3D_ENUM_ATTRIBUTE_EX("Collision Event Mode", collisionEventMode_, MarkBodyDirty, collisionEventModeNames, COLLISION_ACTIVE, AM_DEFAULT);
     URHO3D_ACCESSOR_ATTRIBUTE("Use Gravity", GetUseGravity, SetUseGravity, bool, true, AM_DEFAULT);
-    URHO3D_ATTRIBUTE("Is Kinematic", bool, kinematic_, false, AM_DEFAULT);
-    URHO3D_ATTRIBUTE("Is Trigger", bool, trigger_, false, AM_DEFAULT);
+    URHO3D_ATTRIBUTE_EX("Is Kinematic", bool, kinematic_, MarkBodyDirty, false, AM_DEFAULT);
+    URHO3D_ATTRIBUTE_EX("Is Trigger", bool, trigger_, MarkBodyDirty, false, AM_DEFAULT);
     URHO3D_ACCESSOR_ATTRIBUTE("Gravity Override", GetGravityOverride, SetGravityOverride, Vector3, Vector3::ZERO, AM_DEFAULT);
-}
-
-void RigidBody::OnSetAttribute(const AttributeInfo& attr, const Variant& src)
-{
-    Serializable::OnSetAttribute(attr, src);
-
-    // Change of any non-accessor attribute requires the rigid body to be re-added to the physics world
-    if (!attr.accessor_)
-        readdBody_ = true;
 }
 
 void RigidBody::ApplyAttributes()
@@ -180,7 +163,7 @@ void RigidBody::setWorldTransform(const btTransform& worldTrans)
 {
     Quaternion newWorldRotation = ToQuaternion(worldTrans.getRotation());
     Vector3 newWorldPosition = ToVector3(worldTrans.getOrigin()) - newWorldRotation * centerOfMass_;
-    RigidBody* parentRigidBody = 0;
+    RigidBody* parentRigidBody = nullptr;
 
     // It is possible that the RigidBody component has been kept alive via a shared pointer,
     // while its scene node has already been destroyed
@@ -218,10 +201,10 @@ void RigidBody::DrawDebugGeometry(DebugRenderer* debug, bool depthTest)
         physicsWorld_->SetDebugDepthTest(depthTest);
 
         btDiscreteDynamicsWorld* world = physicsWorld_->GetWorld();
-        world->debugDrawObject(body_->getWorldTransform(), shiftedCompoundShape_, IsActive() ? btVector3(1.0f, 1.0f, 1.0f) :
+        world->debugDrawObject(body_->getWorldTransform(), shiftedCompoundShape_.Get(), IsActive() ? btVector3(1.0f, 1.0f, 1.0f) :
             btVector3(0.0f, 1.0f, 0.0f));
 
-        physicsWorld_->SetDebugRenderer(0);
+        physicsWorld_->SetDebugRenderer(nullptr);
     }
 }
 
@@ -278,7 +261,7 @@ void RigidBody::SetRotation(const Quaternion& rotation)
                 interpTrans.setOrigin(worldTrans.getOrigin());
             body_->setInterpolationWorldTransform(interpTrans);
         }
-        
+
         body_->updateInertiaTensor();
 
         Activate();
@@ -760,7 +743,7 @@ void RigidBody::UpdateMass()
     principal.setOrigin(btVector3(0.0f, 0.0f, 0.0f));
 
     // Calculate center of mass shift from all the collision shapes
-    unsigned numShapes = (unsigned)compoundShape_->getNumChildShapes();
+    auto numShapes = (unsigned)compoundShape_->getNumChildShapes();
     if (numShapes)
     {
         PODVector<float> masses(numShapes);
@@ -794,7 +777,9 @@ void RigidBody::UpdateMass()
             !ToQuaternion(childTransform.getRotation()).Equals(Quaternion::IDENTITY))
             useCompound = true;
     }
-    body_->setCollisionShape(useCompound ? shiftedCompoundShape_ : shiftedCompoundShape_->getChildShape(0));
+
+    btCollisionShape* oldCollisionShape = body_->getCollisionShape();
+    body_->setCollisionShape(useCompound ? shiftedCompoundShape_.Get() : shiftedCompoundShape_->getChildShape(0));
 
     // If we have one shape and this is a triangle mesh, we use a custom material callback in order to adjust internal edges
     if (!useCompound && body_->getCollisionShape()->getShapeType() == SCALED_TRIANGLE_MESH_SHAPE_PROXYTYPE &&
@@ -820,6 +805,14 @@ void RigidBody::UpdateMass()
     {
         for (PODVector<Constraint*>::Iterator i = constraints_.Begin(); i != constraints_.End(); ++i)
             (*i)->ApplyFrames();
+    }
+
+    // Readd body to world to reset Bullet collision cache if collision shape was changed (issue #2064)
+    if (inWorld_ && body_->getCollisionShape() != oldCollisionShape && physicsWorld_)
+    {
+        btDiscreteDynamicsWorld* world = physicsWorld_->GetWorld();
+        world->removeRigidBody(body_.Get());
+        world->addRigidBody(body_.Get(), (short)collisionLayer_, (short)collisionMask_);
     }
 }
 
@@ -888,8 +881,7 @@ void RigidBody::ReleaseBody()
 
         RemoveBodyFromWorld();
 
-        delete body_;
-        body_ = 0;
+        body_.Reset();
     }
 }
 
@@ -970,7 +962,7 @@ void RigidBody::AddBodyToWorld()
     {
         // Correct inertia will be calculated below
         btVector3 localInertia(0.0f, 0.0f, 0.0f);
-        body_ = new btRigidBody(mass_, this, shiftedCompoundShape_, localInertia);
+        body_ = new btRigidBody(mass_, this, shiftedCompoundShape_.Get(), localInertia);
         body_->setUserPointer(this);
 
         // Check for existence of the SmoothedTransform component, which should be created by now in network client mode.
@@ -1016,7 +1008,7 @@ void RigidBody::AddBodyToWorld()
         return;
 
     btDiscreteDynamicsWorld* world = physicsWorld_->GetWorld();
-    world->addRigidBody(body_, (short)collisionLayer_, (short)collisionMask_);
+    world->addRigidBody(body_.Get(), (short)collisionLayer_, (short)collisionMask_);
     inWorld_ = true;
     readdBody_ = false;
     hasSimulated_ = false;
@@ -1035,7 +1027,7 @@ void RigidBody::RemoveBodyFromWorld()
     if (physicsWorld_ && body_ && inWorld_)
     {
         btDiscreteDynamicsWorld* world = physicsWorld_->GetWorld();
-        world->removeRigidBody(body_);
+        world->removeRigidBody(body_.Get());
         inWorld_ = false;
     }
 }

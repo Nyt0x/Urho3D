@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -39,17 +39,19 @@ class URHO3D_API Constraint2D : public Component
 
 public:
     /// Construct.
-    Constraint2D(Context* context);
+    explicit Constraint2D(Context* context);
     /// Destruct.
-    virtual ~Constraint2D();
+    ~Constraint2D() override;
     /// Register object factory.
     static void RegisterObject(Context* context);
 
+    /// Apply attribute changes that can not be applied immediately. Called after scene load or a network update.
+    void ApplyAttributes() override;
     /// Handle enabled/disabled state change.
-    virtual void OnSetEnabled();
-    /// Create Joint.
+    void OnSetEnabled() override;
+    /// Create joint.
     void CreateJoint();
-    /// Release Joint.
+    /// Release joint.
     void ReleaseJoint();
 
     /// Set other rigid body.
@@ -76,26 +78,32 @@ public:
 
 protected:
     /// Handle node being assigned.
-    virtual void OnNodeSet(Node* node);
+    void OnNodeSet(Node* node) override;
     /// Handle scene being assigned.
-    virtual void OnSceneSet(Scene* scene);
+    void OnSceneSet(Scene* scene) override;
     /// Return joint def.
-    virtual b2JointDef* GetJointDef() { return 0; };
+    virtual b2JointDef* GetJointDef() { return nullptr; };
     /// Recreate joint.
     void RecreateJoint();
     /// Initialize joint def.
     void InitializeJointDef(b2JointDef* jointDef);
+    /// Mark other body node ID dirty.
+    void MarkOtherBodyNodeIDDirty() { otherBodyNodeIDDirty_ = true; }
 
     /// Physics world.
     WeakPtr<PhysicsWorld2D> physicsWorld_;
     /// Box2D joint.
-    b2Joint* joint_;
+    b2Joint* joint_{};
     /// Owner body.
     WeakPtr<RigidBody2D> ownerBody_;
     /// Other body.
     WeakPtr<RigidBody2D> otherBody_;
-    /// Collide connected.
-    bool collideConnected_;
+    /// Other body node ID for serialization.
+    unsigned otherBodyNodeID_{};
+    /// Collide connected flag.
+    bool collideConnected_{};
+    /// Other body node ID dirty flag.
+    bool otherBodyNodeIDDirty_{};
     /// Attached constraint.
     WeakPtr<Constraint2D> attachedConstraint_;
 };

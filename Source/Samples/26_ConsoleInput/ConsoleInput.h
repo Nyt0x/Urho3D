@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -28,20 +28,21 @@
 /// This sample demonstrates:
 ///     - Implementing a crude text adventure game, which accepts input both through the engine console,
 ///       and standard input.
+///     - Adding autocomplete options to the engine console.
 class ConsoleInput : public Sample
 {
     URHO3D_OBJECT(ConsoleInput, Sample);
 
 public:
     /// Construct.
-    ConsoleInput(Context* context);
+    explicit ConsoleInput(Context* context);
 
     /// Setup after engine initialization and before running the main loop.
-    virtual void Start();
+    void Start() override;
 
 protected:
     /// Return XML patch instructions for screen joystick layout for a specific sample app, if any.
-    virtual String GetScreenJoystickPatchString() const { return
+    String GetScreenJoystickPatchString() const override { return
         "<patch>"
         "    <add sel=\"/element/element[./attribute[@name='Name' and @value='Button2']]\">"
         "        <attribute name=\"Is Visible\" value=\"false\" />"
@@ -71,15 +72,15 @@ private:
     void Print(const String& output);
 
     /// Game on flag.
-    bool gameOn_;
+    bool gameOn_{};
     /// Food dispensed flag.
-    bool foodAvailable_;
+    bool foodAvailable_{};
     /// Whether ate on the previous turn.
-    bool eatenLastTurn_;
+    bool eatenLastTurn_{};
     /// Number of turns survived.
-    int numTurns_;
+    unsigned numTurns_{};
     /// Player's hunger level.
-    int hunger_;
+    int hunger_{};
     /// Threat of Urho level.
-    int urhoThreat_;
+    int urhoThreat_{};
 };

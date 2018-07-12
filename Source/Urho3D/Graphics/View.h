@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -116,9 +116,9 @@ class URHO3D_API View : public Object
 
 public:
     /// Construct.
-    View(Context* context);
+    explicit View(Context* context);
     /// Destruct.
-    virtual ~View();
+    ~View() override = default;
 
     /// Define with rendertarget and viewport. Return true if successful.
     bool Define(RenderSurface* renderTarget, Viewport* viewport);
@@ -146,7 +146,7 @@ public:
 
     /// Return information of the frame being rendered.
     const FrameInfo& GetFrameInfo() const { return frame_; }
-    
+
     /// Return the rendertarget. 0 if using the backbuffer.
     RenderSurface* GetRenderTarget() const { return renderTarget_; }
 
@@ -155,10 +155,10 @@ public:
 
     /// Return view rectangle.
     const IntRect& GetViewRect() const { return viewRect_; }
-    
+
     /// Return view dimensions.
     const IntVector2& GetViewSize() const { return viewSize_; }
-    
+
     /// Return geometry objects.
     const PODVector<Drawable*>& GetGeometries() const { return geometries_; }
 
@@ -184,6 +184,8 @@ public:
     void SetGlobalShaderParameters();
     /// Set camera-specific shader parameters. Called by Batch and internally by View.
     void SetCameraShaderParameters(Camera* camera);
+    /// Set command's shader parameters if any. Called internally by View.
+    void SetCommandShaderParameters(const RenderPathCommand& command);
     /// Set G-buffer offset and inverse size shader parameters. Called by Batch and internally by View.
     void SetGBufferShaderParameters(const IntVector2& texSize, const IntRect& viewRect);
 
@@ -250,25 +252,31 @@ private:
     bool IsShadowCasterVisible(Drawable* drawable, BoundingBox lightViewBox, Camera* shadowCamera, const Matrix3x4& lightView,
         const Frustum& lightViewFrustum, const BoundingBox& lightViewFrustumBox);
     /// Return the viewport for a shadow map split.
-    IntRect GetShadowMapViewport(Light* light, unsigned splitIndex, Texture2D* shadowMap);
+    IntRect GetShadowMapViewport(Light* light, int splitIndex, Texture2D* shadowMap);
     /// Find and set a new zone for a drawable when it has moved.
     void FindZone(Drawable* drawable);
     /// Return material technique, considering the drawable's LOD distance.
     Technique* GetTechnique(Drawable* drawable, Material* material);
     /// Check if material should render an auxiliary view (if it has a camera attached.)
     void CheckMaterialForAuxView(Material* material);
+    /// Set shader defines for a batch queue if used.
+    void SetQueueShaderDefines(BatchQueue& queue, const RenderPathCommand& command);
     /// Choose shaders for a batch and add it to queue.
     void AddBatchToQueue(BatchQueue& queue, Batch& batch, Technique* tech, bool allowInstancing = true, bool allowShadows = true);
     /// Prepare instancing buffer by filling it with all instance transforms.
     void PrepareInstancingBuffer();
     /// Set up a light volume rendering batch.
     void SetupLightVolumeBatch(Batch& batch);
+    /// Check whether a light queue needs shadow rendering.
+    bool NeedRenderShadowMap(const LightBatchQueue& queue);
     /// Render a shadow map.
     void RenderShadowMap(const LightBatchQueue& queue);
     /// Return the proper depth-stencil surface to use for a rendertarget.
     RenderSurface* GetDepthStencil(RenderSurface* renderTarget);
     /// Helper function to get the render surface from a texture. 2D textures will always return the first face only.
     RenderSurface* GetRenderSurfaceFromTexture(Texture* texture, CubeMapFace face = FACE_POSITIVE_X);
+    /// Send a view update or render related event through the Renderer subsystem. The parameters are the same for all of them.
+    void SendViewEvent(StringHash eventType);
 
     /// Return the drawable's zone, or camera zone if it has override mode enabled.
     Zone* GetZone(Drawable* drawable)
@@ -305,33 +313,35 @@ private:
     /// Renderer subsystem.
     WeakPtr<Renderer> renderer_;
     /// Scene to use.
-    Scene* scene_;
+    Scene* scene_{};
     /// Octree to use.
-    Octree* octree_;
+    Octree* octree_{};
     /// Viewport (rendering) camera.
-    Camera* camera_;
+    Camera* camera_{};
     /// Culling camera. Usually same as the viewport camera.
-    Camera* cullCamera_;
+    Camera* cullCamera_{};
     /// Shared source view. Null if this view is using its own culling.
     WeakPtr<View> sourceView_;
     /// Zone the camera is inside, or default zone if not assigned.
-    Zone* cameraZone_;
+    Zone* cameraZone_{};
     /// Zone at far clip plane.
-    Zone* farClipZone_;
+    Zone* farClipZone_{};
     /// Occlusion buffer for the main camera.
-    OcclusionBuffer* occlusionBuffer_;
+    OcclusionBuffer* occlusionBuffer_{};
     /// Destination color rendertarget.
-    RenderSurface* renderTarget_;
+    RenderSurface* renderTarget_{};
     /// Substitute rendertarget for deferred rendering. Allocated if necessary.
-    RenderSurface* substituteRenderTarget_;
+    RenderSurface* substituteRenderTarget_{};
     /// Texture(s) for sampling the viewport contents. Allocated if necessary.
-    Texture* viewportTextures_[MAX_VIEWPORT_TEXTURES];
+    Texture* viewportTextures_[MAX_VIEWPORT_TEXTURES]{};
     /// Color rendertarget active for the current renderpath command.
-    RenderSurface* currentRenderTarget_;
+    RenderSurface* currentRenderTarget_{};
+    /// Last used custom depth render surface.
+    RenderSurface* lastCustomDepthSurface_{};
     /// Texture containing the latest viewport texture.
-    Texture* currentViewportTexture_;
+    Texture* currentViewportTexture_{};
     /// Dummy texture for D3D9 depth only rendering.
-    Texture* depthOnlyDummyTexture_;
+    Texture* depthOnlyDummyTexture_{};
     /// Viewport rectangle.
     IntRect viewRect_;
     /// Viewport size.
@@ -339,41 +349,41 @@ private:
     /// Destination rendertarget size.
     IntVector2 rtSize_;
     /// Information of the frame being rendered.
-    FrameInfo frame_;
+    FrameInfo frame_{};
     /// View aspect ratio.
-    float aspectRatio_;
+    float aspectRatio_{};
     /// Minimum Z value of the visible scene.
-    float minZ_;
+    float minZ_{};
     /// Maximum Z value of the visible scene.
-    float maxZ_;
+    float maxZ_{};
     /// Material quality level.
-    int materialQuality_;
+    int materialQuality_{};
     /// Maximum number of occluder triangles.
-    int maxOccluderTriangles_;
+    int maxOccluderTriangles_{};
     /// Minimum number of instances required in a batch group to render as instanced.
-    int minInstances_;
+    int minInstances_{};
     /// Highest zone priority currently visible.
-    int highestZonePriority_;
+    int highestZonePriority_{};
     /// Geometries updated flag.
-    bool geometriesUpdated_;
+    bool geometriesUpdated_{};
     /// Camera zone's override flag.
-    bool cameraZoneOverride_;
+    bool cameraZoneOverride_{};
     /// Draw shadows flag.
-    bool drawShadows_;
+    bool drawShadows_{};
     /// Deferred flag. Inferred from the existence of a light volume command in the renderpath.
-    bool deferred_;
+    bool deferred_{};
     /// Deferred ambient pass flag. This means that the destination rendertarget is being written to at the same time as albedo/normal/depth buffers, and needs to be RGBA on OpenGL.
-    bool deferredAmbient_;
+    bool deferredAmbient_{};
     /// Forward light base pass optimization flag. If in use, combine the base pass and first light for all opaque objects.
-    bool useLitBase_;
+    bool useLitBase_{};
     /// Has scene passes flag. If no scene passes, view can be defined without a valid scene or camera to only perform quad rendering.
-    bool hasScenePasses_;
+    bool hasScenePasses_{};
     /// Whether is using a custom readable depth texture without a stencil channel.
-    bool noStencil_;
+    bool noStencil_{};
     /// Draw debug geometry flag. Copied from the viewport.
-    bool drawDebug_;
+    bool drawDebug_{};
     /// Renderpath.
-    RenderPath* renderPath_;
+    RenderPath* renderPath_{};
     /// Per-thread octree query results.
     Vector<PODVector<Drawable*> > tempDrawables_;
     /// Per-thread geometries, lights and Z range collection results.
@@ -391,7 +401,7 @@ private:
     /// Lights.
     PODVector<Light*> lights_;
     /// Number of active occluders.
-    unsigned activeOccluders_;
+    unsigned activeOccluders_{};
 
     /// Drawables that limit their maximum light count.
     HashSet<Drawable*> maxLightsDrawables_;
@@ -408,21 +418,25 @@ private:
     /// Batch queues by pass index.
     HashMap<unsigned, BatchQueue> batchQueues_;
     /// Index of the GBuffer pass.
-    unsigned gBufferPassIndex_;
+    unsigned gBufferPassIndex_{};
     /// Index of the opaque forward base pass.
-    unsigned basePassIndex_;
+    unsigned basePassIndex_{};
     /// Index of the alpha pass.
-    unsigned alphaPassIndex_;
+    unsigned alphaPassIndex_{};
     /// Index of the forward light pass.
-    unsigned lightPassIndex_;
+    unsigned lightPassIndex_{};
     /// Index of the litbase pass.
-    unsigned litBasePassIndex_;
+    unsigned litBasePassIndex_{};
     /// Index of the litalpha pass.
-    unsigned litAlphaPassIndex_;
+    unsigned litAlphaPassIndex_{};
     /// Pointer to the light volume command if any.
-    const RenderPathCommand* lightVolumeCommand_;
+    const RenderPathCommand* lightVolumeCommand_{};
+    /// Pointer to the forwardlights command if any.
+    const RenderPathCommand* forwardLightsCommand_{};
+    /// Pointer to the current commmand if it contains shader parameters to be set for a render pass.
+    const RenderPathCommand* passCommand_{};
     /// Flag for scene being resolved from the backbuffer.
-    bool usedResolve_;
+    bool usedResolve_{};
 };
 
 }

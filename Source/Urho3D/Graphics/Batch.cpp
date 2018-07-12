@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -85,16 +85,16 @@ void CalculateShadowMatrix(Matrix4& dest, LightBatchQueue* queue, unsigned split
     Camera* shadowCamera = queue->shadowSplits_[split].shadowCamera_;
     const IntRect& viewport = queue->shadowSplits_[split].shadowViewport_;
 
-    Matrix3x4 shadowView(shadowCamera->GetView());
-    Matrix4 shadowProj(shadowCamera->GetProjection());
+    const Matrix3x4& shadowView(shadowCamera->GetView());
+    Matrix4 shadowProj(shadowCamera->GetGPUProjection());
     Matrix4 texAdjust(Matrix4::IDENTITY);
 
     Texture2D* shadowMap = queue->shadowMap_;
     if (!shadowMap)
         return;
 
-    float width = (float)shadowMap->GetWidth();
-    float height = (float)shadowMap->GetHeight();
+    auto width = (float)shadowMap->GetWidth();
+    auto height = (float)shadowMap->GetHeight();
 
     Vector3 offset(
         (float)viewport.left_ / width,
@@ -161,20 +161,18 @@ void CalculateSpotMatrix(Matrix4& dest, Light* light)
 
 void Batch::CalculateSortKey()
 {
-    unsigned shaderID = (unsigned)(
+    auto shaderID = (unsigned)(
         ((*((unsigned*)&vertexShader_) / sizeof(ShaderVariation)) + (*((unsigned*)&pixelShader_) / sizeof(ShaderVariation))) &
-        0x3fff);
+        0x7fffu);
     if (!isBase_)
         shaderID |= 0x8000;
-    if (pass_ && pass_->GetAlphaMask())
-        shaderID |= 0x4000;
 
-    unsigned lightQueueID = (unsigned)((*((unsigned*)&lightQueue_) / sizeof(LightBatchQueue)) & 0xffff);
-    unsigned materialID = (unsigned)((*((unsigned*)&material_) / sizeof(Material)) & 0xffff);
-    unsigned geometryID = (unsigned)((*((unsigned*)&geometry_) / sizeof(Geometry)) & 0xffff);
+    auto lightQueueID = (unsigned)((*((unsigned*)&lightQueue_) / sizeof(LightBatchQueue)) & 0xffffu);
+    auto materialID = (unsigned)((*((unsigned*)&material_) / sizeof(Material)) & 0xffffu);
+    auto geometryID = (unsigned)((*((unsigned*)&geometry_) / sizeof(Geometry)) & 0xffffu);
 
-    sortKey_ = (((unsigned long long)shaderID) << 48) | (((unsigned long long)lightQueueID) << 32) |
-               (((unsigned long long)materialID) << 16) | geometryID;
+    sortKey_ = (((unsigned long long)shaderID) << 48u) | (((unsigned long long)lightQueueID) << 32u) |
+               (((unsigned long long)materialID) << 16u) | geometryID;
 }
 
 void Batch::Prepare(View* view, Camera* camera, bool setModelTransform, bool allowDepthWrite) const
@@ -184,9 +182,9 @@ void Batch::Prepare(View* view, Camera* camera, bool setModelTransform, bool all
 
     Graphics* graphics = view->GetGraphics();
     Renderer* renderer = view->GetRenderer();
-    Node* cameraNode = camera ? camera->GetNode() : 0;
-    Light* light = lightQueue_ ? lightQueue_->light_ : 0;
-    Texture2D* shadowMap = lightQueue_ ? lightQueue_->shadowMap_ : 0;
+    Node* cameraNode = camera ? camera->GetNode() : nullptr;
+    Light* light = lightQueue_ ? lightQueue_->light_ : nullptr;
+    Texture2D* shadowMap = lightQueue_ ? lightQueue_->shadowMap_ : nullptr;
 
     // Set shaders first. The available shader parameters and their register/uniform positions depend on the currently set shaders
     graphics->SetShaders(vertexShader_, pixelShader_);
@@ -203,7 +201,8 @@ void Batch::Prepare(View* view, Camera* camera, bool setModelTransform, bool all
             else if (blend == BLEND_ADDALPHA)
                 blend = BLEND_SUBTRACTALPHA;
         }
-        graphics->SetBlendMode(blend);
+        graphics->SetBlendMode(blend, pass_->GetAlphaToCoverage() || material_->GetAlphaToCoverage());
+        graphics->SetLineAntiAlias(material_->GetLineAntiAlias());
 
         bool isShadowPass = pass_->GetIndex() == Technique::shadowPassIndex;
         CullMode effectiveCullMode = pass_->GetCullMode();
@@ -225,14 +224,14 @@ void Batch::Prepare(View* view, Camera* camera, bool setModelTransform, bool all
     }
 
     // Set global (per-frame) shader parameters
-    if (graphics->NeedParameterUpdate(SP_FRAME, (void*)0))
+    if (graphics->NeedParameterUpdate(SP_FRAME, nullptr))
         view->SetGlobalShaderParameters();
 
     // Set camera & viewport shader parameters
-    unsigned cameraHash = (unsigned)(size_t)camera;
+    auto cameraHash = (unsigned)(size_t)camera;
     IntRect viewport = graphics->GetViewport();
     IntVector2 viewSize = IntVector2(viewport.Width(), viewport.Height());
-    unsigned viewportHash = (unsigned)(viewSize.x_ | (viewSize.y_ << 16));
+    auto viewportHash = (unsigned)viewSize.x_ | (unsigned)viewSize.y_ << 16u;
     if (graphics->NeedParameterUpdate(SP_CAMERA, reinterpret_cast<const void*>(cameraHash + viewportHash)))
     {
         view->SetCameraShaderParameters(camera);
@@ -265,7 +264,7 @@ void Batch::Prepare(View* view, Camera* camera, bool setModelTransform, bool all
     BlendMode blend = graphics->GetBlendMode();
     // If the pass is additive, override fog color to black so that shaders do not need a separate additive path
     bool overrideFogColorToBlack = blend == BLEND_ADD || blend == BLEND_ADDALPHA;
-    unsigned zoneHash = (unsigned)(size_t)zone_;
+    auto zoneHash = (unsigned)(size_t)zone_;
     if (overrideFogColorToBlack)
         zoneHash += 0x80000000;
     if (zone_ && graphics->NeedParameterUpdate(SP_ZONE, reinterpret_cast<const void*>(zoneHash)))
@@ -284,6 +283,8 @@ void Batch::Prepare(View* view, Camera* camera, bool setModelTransform, bool all
 
         graphics->SetShaderParameter(PSP_AMBIENTCOLOR, zone_->GetAmbientColor());
         graphics->SetShaderParameter(PSP_FOGCOLOR, overrideFogColorToBlack ? Color::BLACK : zone_->GetFogColor());
+        graphics->SetShaderParameter(PSP_ZONEMIN, zone_->GetBoundingBox().min_);
+        graphics->SetShaderParameter(PSP_ZONEMAX, zone_->GetBoundingBox().max_);
 
         float farClip = camera->GetFarClip();
         float fogStart = Min(zone_->GetFogStart(), farClip);
@@ -374,6 +375,8 @@ void Batch::Prepare(View* view, Camera* camera, bool setModelTransform, bool all
                 light->GetEffectiveSpecularIntensity()) * fade);
             graphics->SetShaderParameter(PSP_LIGHTDIR, lightDir);
             graphics->SetShaderParameter(PSP_LIGHTPOS, lightPos);
+            graphics->SetShaderParameter(PSP_LIGHTRAD, light->GetRadius());
+            graphics->SetShaderParameter(PSP_LIGHTLENGTH, light->GetLength());
 
             if (graphics->HasShaderParameter(PSP_LIGHTMATRICES))
             {
@@ -396,7 +399,7 @@ void Batch::Prepare(View* view, Camera* camera, bool setModelTransform, bool all
                         Matrix4 shadowMatrices[2];
 
                         CalculateSpotMatrix(shadowMatrices[0], light);
-                        bool isShadowed = lightQueue_->shadowMap_ != 0;
+                        bool isShadowed = lightQueue_->shadowMap_ != nullptr;
                         if (isShadowed)
                             CalculateShadowMatrix(shadowMatrices[1], lightQueue_, 0, renderer);
 
@@ -424,10 +427,10 @@ void Batch::Prepare(View* view, Camera* camera, bool setModelTransform, bool all
             {
                 {
                     // Calculate point light shadow sampling offsets (unrolled cube map)
-                    unsigned faceWidth = (unsigned)(shadowMap->GetWidth() / 2);
-                    unsigned faceHeight = (unsigned)(shadowMap->GetHeight() / 3);
-                    float width = (float)shadowMap->GetWidth();
-                    float height = (float)shadowMap->GetHeight();
+                    auto faceWidth = (unsigned)(shadowMap->GetWidth() / 2);
+                    auto faceHeight = (unsigned)(shadowMap->GetHeight() / 3);
+                    auto width = (float)shadowMap->GetWidth();
+                    auto height = (float)shadowMap->GetHeight();
 #ifdef URHO3D_OPENGL
                     float mulX = (float)(faceWidth - 3) / width;
                     float mulY = (float)(faceHeight - 3) / height;
@@ -580,6 +583,16 @@ void Batch::Prepare(View* view, Camera* camera, bool setModelTransform, bool all
         }
     }
 
+    // Set zone texture if necessary
+#ifndef GL_ES_VERSION_2_0
+    if (zone_ && graphics->HasTextureUnit(TU_ZONE))
+        graphics->SetTexture(TU_ZONE, zone_->GetZoneTexture());
+#else
+    // On OpenGL ES set the zone texture to the environment unit instead
+    if (zone_ && zone_->GetZoneTexture() && graphics->HasTextureUnit(TU_ENVIRONMENT))
+        graphics->SetTexture(TU_ENVIRONMENT, zone_->GetZoneTexture());
+#endif
+
     // Set material-specific shader parameters and textures
     if (material_)
     {
@@ -618,12 +631,6 @@ void Batch::Prepare(View* view, Camera* camera, bool setModelTransform, bool all
             graphics->SetTexture(TU_LIGHTSHAPE, shapeTexture);
         }
     }
-
-    // Set zone texture if necessary
-#ifdef DESKTOP_GRAPHICS
-    if (zone_ && graphics->HasTextureUnit(TU_ZONE))
-        graphics->SetTexture(TU_ZONE, zone_->GetZoneTexture());
-#endif
 }
 
 void Batch::Draw(View* view, Camera* camera, bool allowDepthWrite) const
@@ -689,7 +696,7 @@ void BatchGroup::Draw(View* view, Camera* camera, bool allowDepthWrite) const
 
             // Get the geometry vertex buffers, then add the instancing stream buffer
             // Hack: use a const_cast to avoid dynamic allocation of new temp vectors
-            Vector<SharedPtr<VertexBuffer> >& vertexBuffers = const_cast<Vector<SharedPtr<VertexBuffer> >&>(
+            auto& vertexBuffers = const_cast<Vector<SharedPtr<VertexBuffer> >&>(
                 geometry_->GetVertexBuffers());
             vertexBuffers.Push(SharedPtr<VertexBuffer>(instanceBuffer));
 
@@ -728,11 +735,11 @@ void BatchQueue::SortBackToFront()
     Sort(sortedBatches_.Begin(), sortedBatches_.End(), CompareBatchesBackToFront);
 
     sortedBatchGroups_.Resize(batchGroups_.Size());
-    
+
     unsigned index = 0;
     for (HashMap<BatchGroupKey, BatchGroup>::Iterator i = batchGroups_.Begin(); i != batchGroups_.End(); ++i)
         sortedBatchGroups_[index++] = &i->second_;
-    
+
     Sort(sortedBatchGroups_.Begin(), sortedBatchGroups_.End(), CompareBatchGroupOrder);
 }
 
@@ -790,17 +797,17 @@ void BatchQueue::SortFrontToBack2Pass(PODVector<Batch*>& batches)
     {
         Batch* batch = *i;
 
-        unsigned shaderID = (unsigned)(batch->sortKey_ >> 32);
+        auto shaderID = (unsigned)(batch->sortKey_ >> 32u);
         HashMap<unsigned, unsigned>::ConstIterator j = shaderRemapping_.Find(shaderID);
         if (j != shaderRemapping_.End())
             shaderID = j->second_;
         else
         {
-            shaderID = shaderRemapping_[shaderID] = freeShaderID | (shaderID & 0xc0000000);
+            shaderID = shaderRemapping_[shaderID] = freeShaderID | (shaderID & 0x80000000);
             ++freeShaderID;
         }
 
-        unsigned short materialID = (unsigned short)(batch->sortKey_ & 0xffff0000);
+        auto materialID = (unsigned short)(batch->sortKey_ & 0xffff0000);
         HashMap<unsigned short, unsigned short>::ConstIterator k = materialRemapping_.Find(materialID);
         if (k != materialRemapping_.End())
             materialID = k->second_;
@@ -810,7 +817,7 @@ void BatchQueue::SortFrontToBack2Pass(PODVector<Batch*>& batches)
             ++freeMaterialID;
         }
 
-        unsigned short geometryID = (unsigned short)(batch->sortKey_ & 0xffff);
+        auto geometryID = (unsigned short)(batch->sortKey_ & 0xffffu);
         HashMap<unsigned short, unsigned short>::ConstIterator l = geometryRemapping_.Find(geometryID);
         if (l != geometryRemapping_.End())
             geometryID = l->second_;
@@ -820,7 +827,7 @@ void BatchQueue::SortFrontToBack2Pass(PODVector<Batch*>& batches)
             ++freeGeometryID;
         }
 
-        batch->sortKey_ = (((unsigned long long)shaderID) << 32) | (((unsigned long long)materialID) << 16) | geometryID;
+        batch->sortKey_ = (((unsigned long long)shaderID) << 32u) | (((unsigned long long)materialID) << 16u) | geometryID;
     }
 
     shaderRemapping_.Clear();

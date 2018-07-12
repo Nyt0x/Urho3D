@@ -51,9 +51,11 @@ const int RESOURCE_TYPE_TEXTURE_3D = 19;
 const int RESOURCE_TYPE_CUBEMAP = 20;
 const int RESOURCE_TYPE_PARTICLEEMITTER = 21;
 const int RESOURCE_TYPE_2D_ANIMATION_SET = 22;
+const int RESOURCE_TYPE_GENERIC_XML = 23;
+const int RESOURCE_TYPE_GENERIC_JSON = 24;
 
 // any resource type > 0 is valid
-const int NUMBER_OF_VALID_RESOURCE_TYPES = 22;
+const int NUMBER_OF_VALID_RESOURCE_TYPES = 24;
 
 const StringHash XML_TYPE_SCENE("scene");
 const StringHash XML_TYPE_NODE("node");
@@ -71,6 +73,7 @@ const StringHash XML_TYPE_2D_PARTICLE_EFFECT("particleEmitterConfig");
 const StringHash XML_TYPE_TEXTURE_3D("texture3d");
 const StringHash XML_TYPE_CUBEMAP("cubemap");
 const StringHash XML_TYPE_SPRITER_DATA("spriter_data");
+const StringHash XML_TYPE_GENERIC("xml");
 
 const StringHash JSON_TYPE_SCENE("scene");
 const StringHash JSON_TYPE_NODE("node");
@@ -88,11 +91,12 @@ const StringHash JSON_TYPE_2D_PARTICLE_EFFECT("particleEmitterConfig");
 const StringHash JSON_TYPE_TEXTURE_3D("texture3d");
 const StringHash JSON_TYPE_CUBEMAP("cubemap");
 const StringHash JSON_TYPE_SPRITER_DATA("spriter_data");
+const StringHash JSON_TYPE_GENERIC("json");
 
 const StringHash BINARY_TYPE_SCENE("USCN");
 const StringHash BINARY_TYPE_PACKAGE("UPAK");
 const StringHash BINARY_TYPE_COMPRESSED_PACKAGE("ULZ4");
-const StringHash BINARY_TYPE_ANGLESCRIPT("ASBC");
+const StringHash BINARY_TYPE_ANGELSCRIPT("ASBC");
 const StringHash BINARY_TYPE_MODEL("UMDL");
 const StringHash BINARY_TYPE_MODEL2("UMD2");
 const StringHash BINARY_TYPE_SHADER("USHD");
@@ -262,7 +266,7 @@ void CreateResourceFilterUI()
     Array<ResourceType@> sorted;
     for (int i=1; i <= NUMBER_OF_VALID_RESOURCE_TYPES; ++i)
         sorted.Push(ResourceType(i, ResourceTypeName(i)));
-        
+
     // 2 unknown types are reserved for the top, the rest are alphabetized
     sorted.Sort();
     sorted.Insert(0, ResourceType(RESOURCE_TYPE_UNKNOWN, ResourceTypeName(RESOURCE_TYPE_UNKNOWN)) );
@@ -347,7 +351,7 @@ void InitializeBrowserFileListRow(Text@ fileText, BrowserFile@ file)
         text.text = file.ResourceTypeName();
     }
 
-    if (file.resourceType == RESOURCE_TYPE_MATERIAL || 
+    if (file.resourceType == RESOURCE_TYPE_MATERIAL ||
             file.resourceType == RESOURCE_TYPE_MODEL ||
             file.resourceType == RESOURCE_TYPE_PARTICLEEFFECT ||
             file.resourceType == RESOURCE_TYPE_PREFAB
@@ -487,7 +491,7 @@ BrowserDir@ InitBrowserDir(String path)
                 parent.children.Push(browserDir);
             }
             @parent = browserDir;
-        } 
+        }
         return browserDir;
     }
     return null;
@@ -1027,7 +1031,7 @@ void HandleBrowserFileDragEnd(StringHash eventType, VariantMap& eventData)
             StaticModel@ sm = createdNode.CreateComponent("StaticModel");
             sm.model = model;
         }
-        
+
         AdjustNodePositionByAABB(createdNode);
     }
 
@@ -1040,10 +1044,10 @@ void HandleFileChanged(StringHash eventType, VariantMap& eventData)
 {
     String filename = eventData["FileName"].GetString();
     BrowserFile@ file = GetBrowserFileFromPath(filename);
-    
+
     if (file is null)
     {
-        // TODO: new file logic when watchers are supported 
+        // TODO: new file logic when watchers are supported
         return;
     }
     else
@@ -1075,17 +1079,16 @@ int GetResourceType(String path, StringHash &out fileType, bool useCache = false
     return RESOURCE_TYPE_UNKNOWN;
 }
 
-
 int GetResourceType(StringHash fileType)
 {
-    // binary fileTypes
+    // Binary filetypes
     if (fileType == BINARY_TYPE_SCENE)
         return RESOURCE_TYPE_SCENE;
     else if (fileType == BINARY_TYPE_PACKAGE)
         return RESOURCE_TYPE_UNUSABLE;
     else if (fileType == BINARY_TYPE_COMPRESSED_PACKAGE)
         return RESOURCE_TYPE_UNUSABLE;
-    else if (fileType == BINARY_TYPE_ANGLESCRIPT)
+    else if (fileType == BINARY_TYPE_ANGELSCRIPT)
         return RESOURCE_TYPE_SCRIPTFILE;
     else if (fileType == BINARY_TYPE_MODEL || fileType == BINARY_TYPE_MODEL2)
         return RESOURCE_TYPE_MODEL;
@@ -1094,7 +1097,7 @@ int GetResourceType(StringHash fileType)
     else if (fileType == BINARY_TYPE_ANIMATION)
         return RESOURCE_TYPE_ANIMATION;
 
-    // xml fileTypes
+    // XML filetypes
     else if (fileType == XML_TYPE_SCENE)
         return RESOURCE_TYPE_SCENE;
     else if (fileType == XML_TYPE_NODE)
@@ -1127,8 +1130,10 @@ int GetResourceType(StringHash fileType)
         return RESOURCE_TYPE_CUBEMAP;
     else if (fileType == XML_TYPE_SPRITER_DATA)
         return RESOURCE_TYPE_2D_ANIMATION_SET;
-   
-    // JSON fileTypes
+    else if (fileType == XML_TYPE_GENERIC)
+        return RESOURCE_TYPE_GENERIC_XML;
+
+    // JSON filetypes
     else if (fileType == JSON_TYPE_SCENE)
         return RESOURCE_TYPE_SCENE;
     else if (fileType == JSON_TYPE_NODE)
@@ -1161,8 +1166,10 @@ int GetResourceType(StringHash fileType)
         return RESOURCE_TYPE_CUBEMAP;
     else if (fileType == JSON_TYPE_SPRITER_DATA)
         return RESOURCE_TYPE_2D_ANIMATION_SET;
+    else if (fileType == JSON_TYPE_GENERIC)
+        return RESOURCE_TYPE_GENERIC_JSON;
 
-    // extension fileTypes
+    // Extension filetypes
     else if (fileType == EXTENSION_TYPE_TTF)
         return RESOURCE_TYPE_FONT;
     else if (fileType == EXTENSION_TYPE_OTF)
@@ -1235,7 +1242,7 @@ bool GetExtensionType(String path, StringHash &out fileType)
     else if(type == EXTENSION_TYPE_JPEG)
         fileType = EXTENSION_TYPE_JPEG;
     else if(type == EXTENSION_TYPE_HDR)
-        fileType =  EXTENSION_TYPE_HDR;    
+        fileType =  EXTENSION_TYPE_HDR;
     else if(type == EXTENSION_TYPE_BMP)
         fileType = EXTENSION_TYPE_BMP;
     else if(type == EXTENSION_TYPE_TGA)
@@ -1273,7 +1280,7 @@ bool GetExtensionType(String path, StringHash &out fileType)
 }
 
 bool GetBinaryType(String path, StringHash &out fileType, bool useCache = false)
-{   
+{
     StringHash type;
     if (useCache)
     {
@@ -1304,8 +1311,8 @@ bool GetBinaryType(String path, StringHash &out fileType, bool useCache = false)
         fileType = BINARY_TYPE_PACKAGE;
     else if (type == BINARY_TYPE_COMPRESSED_PACKAGE)
         fileType = BINARY_TYPE_COMPRESSED_PACKAGE;
-    else if (type == BINARY_TYPE_ANGLESCRIPT)
-        fileType = BINARY_TYPE_ANGLESCRIPT;
+    else if (type == BINARY_TYPE_ANGELSCRIPT)
+        fileType = BINARY_TYPE_ANGELSCRIPT;
     else if (type == BINARY_TYPE_MODEL || type == BINARY_TYPE_MODEL2)
         fileType = BINARY_TYPE_MODEL;
     else if (type == BINARY_TYPE_SHADER)
@@ -1320,6 +1327,8 @@ bool GetBinaryType(String path, StringHash &out fileType, bool useCache = false)
 
 bool GetXmlType(String path, StringHash &out fileType, bool useCache = false)
 {
+    if (GetFileName(path).length == 0)
+        return false; // .gitignore etc.
     String extension = GetExtension(path);
     if (extension == ".txt" || extension == ".json" || extension == ".icns" || extension == ".atlas")
         return false;
@@ -1387,7 +1396,7 @@ bool GetXmlType(String path, StringHash &out fileType, bool useCache = false)
         else if (type == XML_TYPE_SPRITER_DATA)
             fileType = XML_TYPE_SPRITER_DATA;
         else
-            found = false;
+            fileType = XML_TYPE_GENERIC;
     }
     return found;
 }
@@ -1472,7 +1481,8 @@ class BrowserDir
 
     BrowserFile@ AddFile(String name, uint resourceSourceIndex, uint sourceType)
     {
-        String path = resourceKey + "/" + name;
+        String path = resourceKey.length > 0 ? (resourceKey + "/" + name) : name;
+
         BrowserFile@ file = BrowserFile(path, resourceSourceIndex, sourceType);
         files.Push(file);
         return file;
@@ -1540,7 +1550,7 @@ class BrowserFile
             InitializeBrowserFileListRow(browserFileListRow_, this);
         }
     }
-    
+
     String ResourceTypeName()
     {
         return ::ResourceTypeName(resourceType);
@@ -1560,7 +1570,7 @@ class BrowserFile
 void CreateResourcePreview(String path, Node@ previewNode)
 {
     resourceBrowserPreview.autoUpdate = false;
-    int resourceType = GetResourceType(path); 
+    int resourceType = GetResourceType(path);
     if (resourceType > 0)
     {
         File file;
@@ -1608,12 +1618,12 @@ void CreateResourcePreview(String path, Node@ previewNode)
             {
                 XMLFile xmlFile;
                 if(xmlFile.Load(file))
-                    if(previewNode.LoadXML(xmlFile.root, true) && (previewNode.GetComponents("StaticModel", true).length > 0 || previewNode.GetComponents("AnimatedModel", true).length > 0))
+                    if(previewNode.LoadXML(xmlFile.root) && (previewNode.GetComponents("StaticModel", true).length > 0 || previewNode.GetComponents("AnimatedModel", true).length > 0))
                     {
                         return;
                     }
             }
-            else if(previewNode.Load(file, true) && (previewNode.GetComponents("StaticModel", true).length > 0 || previewNode.GetComponents("AnimatedModel", true).length > 0))
+            else if(previewNode.Load(file) && (previewNode.GetComponents("StaticModel", true).length > 0 || previewNode.GetComponents("AnimatedModel", true).length > 0))
                 return;
 
             previewNode.RemoveAllChildren();
@@ -1650,7 +1660,7 @@ void RotateResourceBrowserPreview(StringHash eventType, VariantMap& eventData)
 {
     int elemX = eventData["ElementX"].GetInt();
     int elemY = eventData["ElementY"].GetInt();
-    
+
     if (resourceBrowserPreview.height > 0 && resourceBrowserPreview.width > 0)
     {
         float yaw = ((resourceBrowserPreview.height / 2) - elemY) * (90.0 / resourceBrowserPreview.height);

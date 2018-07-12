@@ -2,7 +2,8 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2015, assimp team
+Copyright (c) 2006-2017, assimp team
+
 All rights reserved.
 
 Redistribution and use of this software in source and binary forms,
@@ -45,7 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define AI_RAWLOADER_H_INCLUDED
 
 #include "BaseImporter.h"
-#include "../include/assimp/types.h"
+#include <assimp/types.h>
 #include <vector>
 
 namespace Assimp    {
@@ -88,7 +89,7 @@ private:
 
     struct MeshInformation
     {
-        MeshInformation(const std::string& _name)
+        explicit MeshInformation(const std::string& _name)
             : name(_name)
         {
             vertices.reserve(100);
@@ -103,7 +104,7 @@ private:
 
     struct GroupInformation
     {
-        GroupInformation(const std::string& _name)
+        explicit GroupInformation(const std::string& _name)
             : name(_name)
         {
             meshes.reserve(10);

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -26,10 +26,10 @@
 
 #include <cassert>
 #include <cstring>
-#include <new>
-#if URHO3D_CXX11
+#include <algorithm>
 #include <initializer_list>
-#endif
+#include <new>
+#include <utility>
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -42,34 +42,49 @@ namespace Urho3D
 /// %Vector template class.
 template <class T> class Vector : public VectorBase
 {
+    struct CopyTag {};
+    struct MoveTag {};
+
 public:
-    typedef T ValueType;
-    typedef RandomAccessIterator<T> Iterator;
-    typedef RandomAccessConstIterator<T> ConstIterator;
+    using ValueType = T;
+    using Iterator = RandomAccessIterator<T>;
+    using ConstIterator = RandomAccessConstIterator<T>;
 
     /// Construct empty.
-    Vector()
-    {
-    }
+    Vector() noexcept = default;
 
     /// Construct with initial size.
     explicit Vector(unsigned size)
     {
-        Resize(size, 0);
+        Resize(size);
+    }
+
+    /// Construct with initial size and default value.
+    Vector(unsigned size, const T& value)
+    {
+        Resize(size);
+        for (unsigned i = 0; i < size; ++i)
+            At(i) = value;
     }
 
     /// Construct with initial data.
     Vector(const T* data, unsigned size)
     {
-        Resize(size, data);
+        DoInsertElements(0, data, data + size, CopyTag{});
     }
 
-    /// Construct from another vector.
+    /// Copy-construct from another vector.
     Vector(const Vector<T>& vector)
     {
-        *this = vector;
+        DoInsertElements(0, vector.Begin(), vector.End(), CopyTag{});
     }
-#if URHO3D_CXX11
+
+    /// Move-construct from another vector.
+    Vector(Vector<T> && vector)
+    {
+        Swap(vector);
+    }
+
     /// Aggregate initialization constructor.
     Vector(const std::initializer_list<T>& list) : Vector()
     {
@@ -78,19 +93,31 @@ public:
             Push(*it);
         }
     }
-#endif
+
     /// Destruct.
     ~Vector()
     {
-        Clear();
+        DestructElements(Buffer(), size_);
         delete[] buffer_;
     }
 
     /// Assign from another vector.
     Vector<T>& operator =(const Vector<T>& rhs)
     {
-        Clear();
-        Resize(rhs.size_, rhs.Buffer());
+        // In case of self-assignment do nothing
+        if (&rhs != this)
+        {
+            Vector<T> copy(rhs);
+            Swap(copy);
+        }
+        return *this;
+    }
+
+    /// Move-assign from another vector.
+    Vector<T>& operator =(Vector<T> && rhs)
+    {
+        assert(&rhs != this);
+        Swap(rhs);
         return *this;
     }
 
@@ -186,107 +213,120 @@ public:
         return Buffer()[index];
     }
 
+    /// Create an element at the end.
+    template <class... Args> T& EmplaceBack(Args&&... args)
+    {
+        if (size_ < capacity_)
+        {
+            // Optimize common case
+            ++size_;
+            new (&Back()) T(std::forward<Args>(args)...);
+        }
+        else
+        {
+            T value(std::forward<Args>(args)...);
+            Push(std::move(value));
+        }
+        return Back();
+    }
+
     /// Add an element at the end.
 #ifndef COVERITY_SCAN_MODEL
-    void Push(const T& value) { Resize(size_ + 1, &value); }
+    void Push(const T& value)
+    {
+        if (size_ < capacity_)
+        {
+            // Optimize common case
+            ++size_;
+            new (&Back()) T(value);
+        }
+        else
+            DoInsertElements(size_, &value, &value + 1, CopyTag{});
+    }
+
+    /// Move-add an element at the end.
+    void Push(T && value)
+    {
+        if (size_ < capacity_)
+        {
+            // Optimize common case
+            ++size_;
+            new (&Back()) T(std::move(value));
+        }
+        else
+            DoInsertElements(size_, &value, &value + 1, MoveTag{});
+    }
 #else
     // FIXME: Attempt had been made to use this model in the Coverity-Scan model file without any success
     // Probably because the model had generated a different mangled name than the one used by static analyzer
     void Push(const T& value)
     {
         T array[] = {value};
-        Resize(size_ + 1, array);
+        DoInsertElements(size_, array, array + 1, CopyTag{});
     }
 #endif
 
     /// Add another vector at the end.
-    void Push(const Vector<T>& vector) { Resize(size_ + vector.size_, vector.Buffer()); }
+    void Push(const Vector<T>& vector) { DoInsertElements(size_, vector.Begin(), vector.End(), CopyTag{}); }
 
     /// Remove the last element.
     void Pop()
     {
         if (size_)
-            Resize(size_ - 1, 0);
+            Resize(size_ - 1);
     }
 
     /// Insert an element at position.
     void Insert(unsigned pos, const T& value)
     {
-        if (pos > size_)
-            pos = size_;
+        DoInsertElements(pos, &value, &value + 1, CopyTag{});
+    }
 
-        unsigned oldSize = size_;
-        Resize(size_ + 1, 0);
-        MoveRange(pos + 1, pos, oldSize - pos);
-        Buffer()[pos] = value;
+    /// Insert an element at position.
+    void Insert(unsigned pos, T && value)
+    {
+        DoInsertElements(pos, &value, &value + 1, MoveTag{});
     }
 
     /// Insert another vector at position.
     void Insert(unsigned pos, const Vector<T>& vector)
     {
-        if (pos > size_)
-            pos = size_;
-
-        unsigned oldSize = size_;
-        Resize(size_ + vector.size_, 0);
-        MoveRange(pos + vector.size_, pos, oldSize - pos);
-        CopyElements(Buffer() + pos, vector.Buffer(), vector.size_);
+        DoInsertElements(pos, vector.Begin(), vector.End(), CopyTag{});
     }
 
     /// Insert an element by iterator.
     Iterator Insert(const Iterator& dest, const T& value)
     {
-        unsigned pos = (unsigned)(dest - Begin());
-        if (pos > size_)
-            pos = size_;
-        Insert(pos, value);
+        auto pos = (unsigned)(dest - Begin());
+        return DoInsertElements(pos, &value, &value + 1, CopyTag{});
+    }
 
-        return Begin() + pos;
+    /// Move-insert an element by iterator.
+    Iterator Insert(const Iterator& dest, T && value)
+    {
+        auto pos = (unsigned)(dest - Begin());
+        return DoInsertElements(pos, &value, &value + 1, MoveTag{});
     }
 
     /// Insert a vector by iterator.
     Iterator Insert(const Iterator& dest, const Vector<T>& vector)
     {
-        unsigned pos = (unsigned)(dest - Begin());
-        if (pos > size_)
-            pos = size_;
-        Insert(pos, vector);
-
-        return Begin() + pos;
+        auto pos = (unsigned)(dest - Begin());
+        return DoInsertElements(pos, vector.Begin(), vector.End(), CopyTag{});
     }
 
     /// Insert a vector partially by iterators.
     Iterator Insert(const Iterator& dest, const ConstIterator& start, const ConstIterator& end)
     {
-        unsigned pos = (unsigned)(dest - Begin());
-        if (pos > size_)
-            pos = size_;
-        unsigned length = (unsigned)(end - start);
-        Resize(size_ + length, 0);
-        MoveRange(pos + length, pos, size_ - pos - length);
-
-        T* destPtr = Buffer() + pos;
-        for (ConstIterator it = start; it != end; ++it)
-            *destPtr++ = *it;
-
-        return Begin() + pos;
+        auto pos = (unsigned)(dest - Begin());
+        return DoInsertElements(pos, start, end, CopyTag{});
     }
 
     /// Insert elements.
     Iterator Insert(const Iterator& dest, const T* start, const T* end)
     {
-        unsigned pos = (unsigned)(dest - Begin());
-        if (pos > size_)
-            pos = size_;
-        unsigned length = (unsigned)(end - start);
-        Resize(size_ + length, 0);
-        MoveRange(pos + length, pos, size_ - pos - length);
-
-        T* destPtr = Buffer() + pos;
-        for (const T* i = start; i != end; ++i)
-            *destPtr++ = *i;
-
-        return Begin() + pos;
+        auto pos = (unsigned)(dest - Begin());
+        return DoInsertElements(pos, start, end, CopyTag{});
     }
 
     /// Erase a range of elements.
@@ -296,8 +336,7 @@ public:
         if (pos + length > size_ || !length)
             return;
 
-        MoveRange(pos, pos + length, size_ - pos - length);
-        Resize(size_ - length, 0);
+        DoEraseElements(pos, length);
     }
 
     /// Erase a range of elements by swapping elements from the end of the array.
@@ -313,20 +352,21 @@ public:
         if (trailingCount <= length)
         {
             // We're removing more elements from the array than exist past the end of the range being removed, so perform a normal shift and destroy
-            MoveRange(pos, shiftStartIndex, trailingCount);
+            DoEraseElements(pos, length);
         }
         else
         {
             // Swap elements from the end of the array into the empty space
-            CopyElements(Buffer() + pos, Buffer() + newSize, length);
+            T* buffer = Buffer();
+            std::move(buffer + newSize, buffer + size_, buffer + pos);
+            Resize(newSize);
         }
-        Resize(newSize, 0);
     }
 
     /// Erase an element by iterator. Return iterator to the next element.
     Iterator Erase(const Iterator& it)
     {
-        unsigned pos = (unsigned)(it - Begin());
+        auto pos = (unsigned)(it - Begin());
         if (pos >= size_)
             return End();
         Erase(pos);
@@ -337,10 +377,10 @@ public:
     /// Erase a range by iterators. Return iterator to the next element.
     Iterator Erase(const Iterator& start, const Iterator& end)
     {
-        unsigned pos = (unsigned)(start - Begin());
+        auto pos = (unsigned)(start - Begin());
         if (pos >= size_)
             return End();
-        unsigned length = (unsigned)(end - start);
+        auto length = (unsigned)(end - start);
         Erase(pos, length);
 
         return Begin() + pos;
@@ -365,7 +405,7 @@ public:
         Iterator i = Find(value);
         if (i != End())
         {
-            EraseSwap(i);
+            EraseSwap(i - Begin());
             return true;
         }
         else
@@ -376,7 +416,16 @@ public:
     void Clear() { Resize(0); }
 
     /// Resize the vector.
-    void Resize(unsigned newSize) { Resize(newSize, 0); }
+    void Resize(unsigned newSize) { DoResize(newSize); }
+
+    /// Resize the vector and fill new elements with default value.
+    void Resize(unsigned newSize, const T& value)
+    {
+        unsigned oldSize = Size();
+        DoResize(newSize);
+        for (unsigned i = oldSize; i < newSize; ++i)
+            At(i) = value;
+    }
 
     /// Set new capacity.
     void Reserve(unsigned newCapacity)
@@ -386,14 +435,14 @@ public:
 
         if (newCapacity != capacity_)
         {
-            T* newBuffer = 0;
+            T* newBuffer = nullptr;
             capacity_ = newCapacity;
 
             if (capacity_)
             {
                 newBuffer = reinterpret_cast<T*>(AllocateBuffer((unsigned)(capacity_ * sizeof(T))));
                 // Move the data into the new buffer
-                ConstructElements(newBuffer, Buffer(), size_);
+                ConstructElements(newBuffer, Begin(), End(), MoveTag{});
             }
 
             // Delete the old buffer
@@ -422,6 +471,12 @@ public:
         while (it != End() && *it != value)
             ++it;
         return it;
+    }
+
+    /// Return index of value in vector, or size if not found.
+    unsigned IndexOf(const T& value) const
+    {
+        return Find(value) - Begin();
     }
 
     /// Return whether contains a specific value.
@@ -480,8 +535,46 @@ public:
     T* Buffer() const { return reinterpret_cast<T*>(buffer_); }
 
 private:
+    /// Construct elements using default ctor.
+    static void ConstructElements(T* dest, unsigned count)
+    {
+        for (unsigned i = 0; i < count; ++i)
+            new(dest + i) T();
+    }
+
+    /// Copy-construct elements.
+    template <class RandomIteratorT>
+    static void ConstructElements(T* dest, RandomIteratorT start, RandomIteratorT end, CopyTag)
+    {
+        const unsigned count = end - start;
+        for (unsigned i = 0; i < count; ++i)
+            new(dest + i) T(*(start + i));
+    }
+
+    /// Move-construct elements.
+    template <class RandomIteratorT>
+    static void ConstructElements(T* dest, RandomIteratorT start, RandomIteratorT end, MoveTag)
+    {
+        const unsigned count = end - start;
+        for (unsigned i = 0; i < count; ++i)
+            new(dest + i) T(std::move(*(start + i)));
+    }
+
+    /// Calculate new vector capacity.
+    static unsigned CalculateCapacity(unsigned size, unsigned capacity)
+    {
+        if (!capacity)
+            return size;
+        else
+        {
+            while (capacity < size)
+                capacity += (capacity + 1) >> 1;
+            return capacity;
+        }
+    }
+
     /// Resize the vector and create/remove new elements as necessary.
-    void Resize(unsigned newSize, const T* src)
+    void DoResize(unsigned newSize)
     {
         // If size shrinks, destruct the removed elements
         if (newSize < size_)
@@ -491,67 +584,85 @@ private:
             // Allocate new buffer if necessary and copy the current elements
             if (newSize > capacity_)
             {
-                if (!capacity_)
-                    capacity_ = newSize;
-                else
-                {
-                    while (capacity_ < newSize)
-                        capacity_ += (capacity_ + 1) >> 1;
-                }
+                T* src = Buffer();
 
-                unsigned char* newBuffer = AllocateBuffer((unsigned)(capacity_ * sizeof(T)));
-                if (buffer_)
-                {
-                    ConstructElements(reinterpret_cast<T*>(newBuffer), Buffer(), size_);
-                    DestructElements(Buffer(), size_);
-                    delete[] buffer_;
-                }
-                buffer_ = newBuffer;
+                // Reallocate vector
+                Vector<T> newVector;
+                newVector.Reserve(CalculateCapacity(newSize, capacity_));
+                newVector.size_ = size_;
+                T* dest = newVector.Buffer();
+
+                // Move old elements
+                ConstructElements(dest, src, src + size_, MoveTag{});
+
+                Swap(newVector);
             }
 
             // Initialize the new elements
-            ConstructElements(Buffer() + size_, src, newSize - size_);
+            ConstructElements(Buffer() + size_, newSize - size_);
         }
 
         size_ = newSize;
     }
 
-    /// Move a range of elements within the vector.
-    void MoveRange(unsigned dest, unsigned src, unsigned count)
+    /// Insert elements into the vector using copy or move constructor.
+    template <class Tag, class RandomIteratorT>
+    Iterator DoInsertElements(unsigned pos, RandomIteratorT start, RandomIteratorT end, Tag)
     {
+        if (pos > size_)
+            pos = size_;
+
+        const unsigned numElements = end - start;
+        if (size_ + numElements > capacity_)
+        {
+            T* src = Buffer();
+
+            // Reallocate vector
+            Vector<T> newVector;
+            newVector.Reserve(CalculateCapacity(size_ + numElements, capacity_));
+            newVector.size_ = size_ + numElements;
+            T* dest = newVector.Buffer();
+
+            // Copy or move new elements
+            ConstructElements(dest + pos, start, end, Tag{});
+
+            // Move old elements
+            if (pos > 0)
+                ConstructElements(dest, src, src + pos, MoveTag{});
+            if (pos < size_)
+                ConstructElements(dest + pos + numElements, src + pos, src + size_, MoveTag{});
+
+            Swap(newVector);
+        }
+        else if (numElements > 0)
+        {
+            T* buffer = Buffer();
+
+            // Copy or move new elements
+            ConstructElements(buffer + size_, start, end, Tag{});
+
+            // Rotate buffer
+            if (pos < size_)
+            {
+                std::rotate(buffer + pos, buffer + size_, buffer + size_ + numElements);
+            }
+
+            // Update size
+            size_ += numElements;
+        }
+
+        return Begin() + pos;
+    }
+
+    /// Erase elements from the vector.
+    Iterator DoEraseElements(unsigned pos, unsigned count)
+    {
+        assert(count > 0);
+        assert(pos + count <= size_);
         T* buffer = Buffer();
-        if (src < dest)
-        {
-            for (unsigned i = count - 1; i < count; --i)
-                buffer[dest + i] = buffer[src + i];
-        }
-        if (src > dest)
-        {
-            for (unsigned i = 0; i < count; ++i)
-                buffer[dest + i] = buffer[src + i];
-        }
-    }
-
-    /// Construct elements, optionally with source data.
-    static void ConstructElements(T* dest, const T* src, unsigned count)
-    {
-        if (!src)
-        {
-            for (unsigned i = 0; i < count; ++i)
-                new(dest + i) T();
-        }
-        else
-        {
-            for (unsigned i = 0; i < count; ++i)
-                new(dest + i) T(*(src + i));
-        }
-    }
-
-    /// Copy elements from one buffer to another.
-    static void CopyElements(T* dest, const T* src, unsigned count)
-    {
-        while (count--)
-            *dest++ = *src++;
+        std::move(buffer + pos + count, buffer + size_, buffer + pos);
+        Resize(size_ - count);
+        return Begin() + pos;
     }
 
     /// Call the elements' destructors.
@@ -565,23 +676,29 @@ private:
     }
 };
 
-/// %Vector template class for POD types. Does not call constructors or destructors and uses block move.
+/// %Vector template class for POD types. Does not call constructors or destructors and uses block move. Is intentionally (for performance reasons) unsafe for self-insertion.
 template <class T> class PODVector : public VectorBase
 {
 public:
-    typedef T ValueType;
-    typedef RandomAccessIterator<T> Iterator;
-    typedef RandomAccessConstIterator<T> ConstIterator;
+    using ValueType = T;
+    using Iterator = RandomAccessIterator<T>;
+    using ConstIterator = RandomAccessConstIterator<T>;
 
     /// Construct empty.
-    PODVector()
-    {
-    }
+    PODVector() noexcept = default;
 
     /// Construct with initial size.
     explicit PODVector(unsigned size)
     {
         Resize(size);
+    }
+
+    /// Construct with initial size and default value.
+    PODVector(unsigned size, const T& value)
+    {
+        Resize(size);
+        for (unsigned i = 0; i < size; ++i)
+            At(i) = value;
     }
 
     /// Construct with initial data.
@@ -596,7 +713,6 @@ public:
     {
         *this = vector;
     }
-#if URHO3D_CXX11
     /// Aggregate initialization constructor.
     PODVector(const std::initializer_list<T>& list) : PODVector()
     {
@@ -605,7 +721,6 @@ public:
             Push(*it);
         }
     }
-#endif
     /// Destruct.
     ~PODVector()
     {
@@ -615,8 +730,12 @@ public:
     /// Assign from another vector.
     PODVector<T>& operator =(const PODVector<T>& rhs)
     {
-        Resize(rhs.size_);
-        CopyElements(Buffer(), rhs.Buffer(), rhs.size_);
+        // In case of self-assignment do nothing
+        if (&rhs != this)
+        {
+            Resize(rhs.size_);
+            CopyElements(Buffer(), rhs.Buffer(), rhs.size_);
+        }
         return *this;
     }
 
@@ -764,7 +883,7 @@ public:
     /// Insert an element by iterator.
     Iterator Insert(const Iterator& dest, const T& value)
     {
-        unsigned pos = (unsigned)(dest - Begin());
+        auto pos = (unsigned)(dest - Begin());
         if (pos > size_)
             pos = size_;
         Insert(pos, value);
@@ -775,7 +894,7 @@ public:
     /// Insert a vector by iterator.
     Iterator Insert(const Iterator& dest, const PODVector<T>& vector)
     {
-        unsigned pos = (unsigned)(dest - Begin());
+        auto pos = (unsigned)(dest - Begin());
         if (pos > size_)
             pos = size_;
         Insert(pos, vector);
@@ -786,10 +905,10 @@ public:
     /// Insert a vector partially by iterators.
     Iterator Insert(const Iterator& dest, const ConstIterator& start, const ConstIterator& end)
     {
-        unsigned pos = (unsigned)(dest - Begin());
+        auto pos = (unsigned)(dest - Begin());
         if (pos > size_)
             pos = size_;
-        unsigned length = (unsigned)(end - start);
+        auto length = (unsigned)(end - start);
         Resize(size_ + length);
         MoveRange(pos + length, pos, size_ - pos - length);
         CopyElements(Buffer() + pos, &(*start), length);
@@ -800,10 +919,10 @@ public:
     /// Insert elements.
     Iterator Insert(const Iterator& dest, const T* start, const T* end)
     {
-        unsigned pos = (unsigned)(dest - Begin());
+        auto pos = (unsigned)(dest - Begin());
         if (pos > size_)
             pos = size_;
-        unsigned length = (unsigned)(end - start);
+        auto length = (unsigned)(end - start);
         Resize(size_ + length);
         MoveRange(pos + length, pos, size_ - pos - length);
 
@@ -828,7 +947,7 @@ public:
     /// Erase an element by iterator. Return iterator to the next element.
     Iterator Erase(const Iterator& it)
     {
-        unsigned pos = (unsigned)(it - Begin());
+        auto pos = (unsigned)(it - Begin());
         if (pos >= size_)
             return End();
         Erase(pos);
@@ -839,10 +958,10 @@ public:
     /// Erase a range by iterators. Return iterator to the next element.
     Iterator Erase(const Iterator& start, const Iterator& end)
     {
-        unsigned pos = (unsigned)(start - Begin());
+        auto pos = (unsigned)(start - Begin());
         if (pos >= size_)
             return End();
-        unsigned length = (unsigned)(end - start);
+        auto length = (unsigned)(end - start);
         Erase(pos, length);
 
         return Begin() + pos;
@@ -855,7 +974,7 @@ public:
         // Return if the range is illegal
         if (shiftStartIndex > size_ || !length)
             return;
-      
+
         unsigned newSize = size_ - length;
         unsigned trailingCount = size_ - shiftStartIndex;
         if (trailingCount <= length)
@@ -890,7 +1009,7 @@ public:
         Iterator i = Find(value);
         if (i != End())
         {
-            EraseSwap(i);
+            EraseSwap(i - Begin());
             return true;
         }
         else
@@ -934,7 +1053,7 @@ public:
 
         if (newCapacity != capacity_)
         {
-            unsigned char* newBuffer = 0;
+            unsigned char* newBuffer = nullptr;
             capacity_ = newCapacity;
 
             if (capacity_)
@@ -969,6 +1088,12 @@ public:
         while (it != End() && *it != value)
             ++it;
         return it;
+    }
+
+    /// Return index of value in vector, or size if not found.
+    unsigned IndexOf(const T& value) const
+    {
+        return Find(value) - Begin();
     }
 
     /// Return whether contains a specific value.

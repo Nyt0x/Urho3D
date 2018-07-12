@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -64,7 +64,8 @@ enum NavigationPushiness
 {
     NAVIGATIONPUSHINESS_LOW = 0,
     NAVIGATIONPUSHINESS_MEDIUM,
-    NAVIGATIONPUSHINESS_HIGH
+    NAVIGATIONPUSHINESS_HIGH,
+    NAVIGATIONPUSHINESS_NONE
 };
 
 /// Crowd agent component, requires a CrowdManager component in the scene. When not set explicitly, agent's radius and height are defaulted to navigation mesh's agent radius and height, respectively.
@@ -77,26 +78,26 @@ class URHO3D_API CrowdAgent : public Component
 
 public:
     /// Construct.
-    CrowdAgent(Context* context);
+    explicit CrowdAgent(Context* context);
     /// Destruct.
-    virtual ~CrowdAgent();
+    ~CrowdAgent() override;
     /// Register object factory.
     static void RegisterObject(Context* context);
     /// Apply attribute changes that can not be applied immediately. Called after scene load or a network update.
-    virtual void ApplyAttributes();
+    void ApplyAttributes() override;
 
     /// Handle enabled/disabled state change.
-    virtual void OnSetEnabled();
+    void OnSetEnabled() override;
     /// Draw debug geometry.
-    void DrawDebugGeometry(bool);
+    void DrawDebugGeometry(bool depthTest);
     /// Draw debug feelers.
-    virtual void DrawDebugGeometry(DebugRenderer* debug, bool depthTest);
+    void DrawDebugGeometry(DebugRenderer* debug, bool depthTest) override;
 
     /// Submit a new target position request for this agent.
     void SetTargetPosition(const Vector3& position);
     /// Submit a new target velocity request for this agent.
     void SetTargetVelocity(const Vector3& velocity);
-    /// Reset any target request for the specified agent.
+    /// Reset any target request for the specified agent. Note that the agent will continue to move into the current direction; set a zero target velocity to actually stop.
     void ResetTarget();
     /// Update the node position. When set to false, the node position should be updated by other means (e.g. using Physics) in response to the E_CROWD_AGENT_REPOSITION event.
     void SetUpdateNodePosition(bool unodepos);
@@ -180,13 +181,15 @@ protected:
     /// Handle crowd agent being updated. It is called by CrowdManager::Update() via callback.
     virtual void OnCrowdUpdate(dtCrowdAgent* ag, float dt);
     /// Handle node being assigned.
-    virtual void OnNodeSet(Node* node);
+    void OnNodeSet(Node* node) override;
     /// Handle node being assigned.
-    virtual void OnSceneSet(Scene* scene);
+    void OnSceneSet(Scene* scene) override;
     /// \todo Handle node transform being dirtied.
-    virtual void OnMarkedDirty(Node* node);
+    void OnMarkedDirty(Node* node) override;
     /// Get internal Detour crowd agent.
     const dtCrowdAgent* GetDetourCrowdAgent() const;
+    /// Handle navigation mesh tile added.
+    void HandleNavigationTileAdded(StringHash eventType, VariantMap& eventData);
 
 private:
     /// Update Detour crowd agent parameter.

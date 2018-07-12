@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -73,19 +73,13 @@ struct TouchState
 /// %Input state for a joystick.
 struct JoystickState
 {
-    /// Construct with defaults.
-    JoystickState() :
-        joystick_(0), controller_(0), screenJoystick_(0)
-    {
-    }
-
     /// Initialize the number of buttons, axes and hats and set them to neutral state.
     void Initialize(unsigned numButtons, unsigned numAxes, unsigned numHats);
     /// Reset button, axis and hat states to neutral.
     void Reset();
 
     /// Return whether is a game controller. Game controllers will use standardized axis and button mappings.
-    bool IsController() const { return controller_ != 0; }
+    bool IsController() const { return controller_ != nullptr; }
 
     /// Return number of buttons.
     unsigned GetNumButtons() const { return buttons_.Size(); }
@@ -109,13 +103,13 @@ struct JoystickState
     int GetHatPosition(unsigned index) const { return index < hats_.Size() ? hats_[index] : HAT_CENTER; }
 
     /// SDL joystick.
-    SDL_Joystick* joystick_;
+    SDL_Joystick* joystick_{};
     /// SDL joystick instance ID.
-    SDL_JoystickID joystickID_;
+    SDL_JoystickID joystickID_{};
     /// SDL game controller.
-    SDL_GameController* controller_;
+    SDL_GameController* controller_{};
     /// UI element containing the screen joystick.
-    UIElement* screenJoystick_;
+    UIElement* screenJoystick_{};
     /// Joystick name.
     String name_;
     /// Button up/down state.
@@ -143,9 +137,9 @@ class URHO3D_API Input : public Object
 
 public:
     /// Construct.
-    Input(Context* context);
+    explicit Input(Context* context);
     /// Destruct.
-    virtual ~Input();
+    ~Input() override;
 
     /// Poll for window messages. Called by HandleBeginFrame().
     void Update();
@@ -187,7 +181,7 @@ public:
      *
      *  This method should only be called in main thread.
      */
-    SDL_JoystickID AddScreenJoystick(XMLFile* layoutFile = 0, XMLFile* styleFile = 0);
+    SDL_JoystickID AddScreenJoystick(XMLFile* layoutFile = nullptr, XMLFile* styleFile = nullptr);
     /// Remove screen joystick by instance ID.
     /** Return true if successful.
      *
@@ -212,6 +206,10 @@ public:
     bool RemoveGesture(unsigned gestureID);
     /// Remove all in-memory gestures.
     void RemoveAllGestures();
+    /// Set the mouse cursor position. Uses the backbuffer (Graphics width/height) coordinates.
+    void SetMousePosition(const IntVector2& position);
+    /// Center the mouse position.
+    void CenterMousePosition();
 
     /// Return keycode from key name.
     int GetKeyFromName(const String& name) const;
@@ -243,16 +241,18 @@ public:
     bool GetQualifierPress(int qualifier) const;
     /// Return the currently held down qualifiers.
     int GetQualifiers() const;
-    /// Return mouse position within window. Should only be used with a visible mouse cursor.
+    /// Return mouse position within window. Should only be used with a visible mouse cursor. Uses the backbuffer (Graphics width/height) coordinates.
     IntVector2 GetMousePosition() const;
     /// Return mouse movement since last frame.
-    const IntVector2& GetMouseMove() const;
+    IntVector2 GetMouseMove() const;
     /// Return horizontal mouse movement since last frame.
     int GetMouseMoveX() const;
     /// Return vertical mouse movement since last frame.
     int GetMouseMoveY() const;
     /// Return mouse wheel movement since last frame.
     int GetMouseMoveWheel() const { return mouseMoveWheel_; }
+    /// Return input coordinate scaling. Should return non-unity on High DPI display.
+    Vector2 GetInputScale() const { return inputScale_; }
 
     /// Return number of active finger touches.
     unsigned GetNumTouches() const { return touches_.Size(); }
@@ -328,10 +328,6 @@ private:
     void SetKey(int key, int scancode, bool newState);
     /// Handle mouse wheel change.
     void SetMouseWheel(int delta);
-    /// Internal function to set the mouse cursor position.
-    void SetMousePosition(const IntVector2& position);
-    /// Center the mouse position.
-    void CenterMousePosition();
     /// Suppress next mouse movement.
     void SuppressNextMouseMove();
     /// Unsuppress mouse movement.
@@ -393,6 +389,8 @@ private:
     IntVector2 mouseMove_;
     /// Mouse wheel movement since last frame.
     int mouseMoveWheel_;
+    /// Input coordinate scaling. Non-unity when window and backbuffer have different sizes (e.g. Retina display.)
+    Vector2 inputScale_;
     /// SDL window ID.
     unsigned windowID_;
     /// Fullscreen toggle flag.
@@ -423,16 +421,14 @@ private:
     bool focusedThisFrame_;
     /// Next mouse move suppress flag.
     bool suppressNextMouseMove_;
-    /// Handling a window resize event flag.
-    bool inResize_;
-    /// Flag for automatic focus (without click inside window) after screen mode change, needed on Linux.
-    bool screenModeChanged_;
+    /// Whether mouse move is accumulated in backbuffer scale or not (when using events directly).
+    bool mouseMoveScaled_;
     /// Initialized flag.
     bool initialized_;
 
 #ifdef __EMSCRIPTEN__
     /// Emscripten Input glue instance.
-    EmscriptenInput* emscriptenInput_;
+    UniquePtr<EmscriptenInput> emscriptenInput_;
     /// Flag used to detect mouse jump when exiting pointer-lock.
     bool emscriptenExitingPointerLock_;
     /// Flag used to detect mouse jump on initial mouse click when entering pointer-lock.

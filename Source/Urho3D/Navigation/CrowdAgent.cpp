@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -28,6 +28,7 @@
 #include "../IO/Log.h"
 #include "../IO/MemoryBuffer.h"
 #include "../Navigation/NavigationEvents.h"
+#include "../Navigation/NavigationMesh.h"
 #include "../Navigation/CrowdAgent.h"
 #include "../Scene/Node.h"
 #include "../Scene/Scene.h"
@@ -55,24 +56,25 @@ static const unsigned SCOPE_NAVIGATION_PUSHINESS_PARAMS = 2;
 static const unsigned SCOPE_BASE_PARAMS = M_MAX_UNSIGNED & ~SCOPE_NAVIGATION_QUALITY_PARAMS & ~SCOPE_NAVIGATION_PUSHINESS_PARAMS;
 
 static const char* crowdAgentRequestedTargetTypeNames[] = {
-    "none",
-    "position",
-    "velocity",
-    0
+    "None",
+    "Position",
+    "Velocity",
+    nullptr
 };
 
 static const char* crowdAgentAvoidanceQualityNames[] = {
-    "low",
-    "medium",
-    "high",
-    0
+    "Low",
+    "Medium",
+    "High",
+    nullptr
 };
 
 static const char* crowdAgentPushinessNames[] = {
-    "low",
-    "medium",
-    "high",
-    0
+    "Low",
+    "Medium",
+    "High",
+    "None",
+    nullptr
 };
 
 CrowdAgent::CrowdAgent(Context* context) :
@@ -92,6 +94,7 @@ CrowdAgent::CrowdAgent(Context* context) :
     previousAgentState_(CA_STATE_WALKING),
     ignoreTransformChanges_(false)
 {
+    SubscribeToEvent(E_NAVIGATION_TILE_ADDED, URHO3D_HANDLER(CrowdAgent, HandleNavigationTileAdded));
 }
 
 CrowdAgent::~CrowdAgent()
@@ -163,7 +166,7 @@ void CrowdAgent::DrawDebugGeometry(bool depthTest)
     Scene* scene = GetScene();
     if (scene)
     {
-        DebugRenderer* debug = scene->GetComponent<DebugRenderer>();
+        auto* debug = scene->GetComponent<DebugRenderer>();
         if (debug)
             DrawDebugGeometry(debug, depthTest);
     }
@@ -196,13 +199,13 @@ void CrowdAgent::UpdateParameters(unsigned scope)
             switch (navQuality_)
             {
             case NAVIGATIONQUALITY_LOW:
-                params.updateFlags = 0
+                params.updateFlags = 0u
                                      | DT_CROWD_OPTIMIZE_VIS
                                      | DT_CROWD_ANTICIPATE_TURNS;
                 break;
 
             case NAVIGATIONQUALITY_MEDIUM:
-                params.updateFlags = 0
+                params.updateFlags = 0u
                                      | DT_CROWD_OPTIMIZE_TOPO
                                      | DT_CROWD_OPTIMIZE_VIS
                                      | DT_CROWD_ANTICIPATE_TURNS
@@ -210,7 +213,7 @@ void CrowdAgent::UpdateParameters(unsigned scope)
                 break;
 
             case NAVIGATIONQUALITY_HIGH:
-                params.updateFlags = 0
+                params.updateFlags = 0u
                                      // Path finding
                                      | DT_CROWD_OPTIMIZE_TOPO
                                      | DT_CROWD_OPTIMIZE_VIS
@@ -241,6 +244,11 @@ void CrowdAgent::UpdateParameters(unsigned scope)
                 params.separationWeight = 0.5f;
                 params.collisionQueryRange = radius_ * 1.0f;
                 break;
+
+            case NAVIGATIONPUSHINESS_NONE:
+                params.separationWeight = 0.0f;
+                params.collisionQueryRange = radius_ * 1.0f;
+                break;
             }
         }
 
@@ -268,7 +276,7 @@ int CrowdAgent::AddAgentToCrowd(bool force)
     {
         URHO3D_PROFILE(AddAgentToCrowd);
 
-        agentCrowdId_ = crowdManager_->AddAgent(this, node_->GetPosition());
+        agentCrowdId_ = crowdManager_->AddAgent(this, node_->GetWorldPosition());
         if (agentCrowdId_ == -1)
             return -1;
 
@@ -465,7 +473,7 @@ void CrowdAgent::SetNavigationPushiness(NavigationPushiness val)
 Vector3 CrowdAgent::GetPosition() const
 {
     const dtCrowdAgent* agent = GetDetourCrowdAgent();
-    return agent ? Vector3(agent->npos) : node_->GetPosition();
+    return agent ? Vector3(agent->npos) : node_->GetWorldPosition();
 }
 
 Vector3 CrowdAgent::GetDesiredVelocity() const
@@ -511,6 +519,9 @@ void CrowdAgent::OnCrowdUpdate(dtCrowdAgent* ag, float dt)
     assert (ag);
     if (node_)
     {
+        // Use pointer to self to check for destruction after sending events
+        WeakPtr<CrowdAgent> self(this);
+
         Vector3 newPos(ag->npos);
         Vector3 newVel(ag->vel);
 
@@ -518,6 +529,13 @@ void CrowdAgent::OnCrowdUpdate(dtCrowdAgent* ag, float dt)
         if (newPos != previousPosition_)
         {
             previousPosition_ = newPos;
+
+            if (updateNodePosition_)
+            {
+                ignoreTransformChanges_ = true;
+                node_->SetWorldPosition(newPos);
+                ignoreTransformChanges_ = false;
+            }
 
             using namespace CrowdAgentReposition;
 
@@ -529,14 +547,11 @@ void CrowdAgent::OnCrowdUpdate(dtCrowdAgent* ag, float dt)
             map[P_ARRIVED] = HasArrived();
             map[P_TIMESTEP] = dt;
             crowdManager_->SendEvent(E_CROWD_AGENT_REPOSITION, map);
+            if (self.Expired())
+                return;
             node_->SendEvent(E_CROWD_AGENT_NODE_REPOSITION, map);
-
-            if (updateNodePosition_)
-            {
-                ignoreTransformChanges_ = true;
-                node_->SetPosition(newPos);
-                ignoreTransformChanges_ = false;
-            }
+            if (self.Expired())
+                return;
         }
 
         // Send a notification event if we've reached the destination
@@ -554,7 +569,11 @@ void CrowdAgent::OnCrowdUpdate(dtCrowdAgent* ag, float dt)
             map[P_POSITION] = newPos;
             map[P_VELOCITY] = newVel;
             crowdManager_->SendEvent(E_CROWD_AGENT_STATE_CHANGED, map);
+            if (self.Expired())
+                return;
             node_->SendEvent(E_CROWD_AGENT_NODE_STATE_CHANGED, map);
+            if (self.Expired())
+                return;
 
             // Send a failure event if either state is a failed status
             if (newAgentState == CA_STATE_INVALID || newTargetState == CA_TARGET_FAILED)
@@ -567,7 +586,11 @@ void CrowdAgent::OnCrowdUpdate(dtCrowdAgent* ag, float dt)
                 map[P_POSITION] = newPos;
                 map[P_VELOCITY] = newVel;
                 crowdManager_->SendEvent(E_CROWD_AGENT_FAILURE, map);
+                if (self.Expired())
+                    return;
                 node_->SendEvent(E_CROWD_AGENT_NODE_FAILURE, map);
+                if (self.Expired())
+                    return;
             }
 
             // State may have been altered during the handling of the event
@@ -600,21 +623,47 @@ void CrowdAgent::OnMarkedDirty(Node* node)
 {
     if (!ignoreTransformChanges_ && IsEnabledEffective())
     {
-        dtCrowdAgent* agent = const_cast<dtCrowdAgent*>(GetDetourCrowdAgent());
+        auto* agent = const_cast<dtCrowdAgent*>(GetDetourCrowdAgent());
         if (agent)
         {
-            memcpy(agent->npos, node->GetWorldPosition().Data(), sizeof(float) * 3);
+            auto& agentPos = reinterpret_cast<Vector3&>(agent->npos);
+            Vector3 nodePos = node->GetWorldPosition();
 
-            // If the node has been externally altered, provide the opportunity for DetourCrowd to reevaluate the crowd agent
-            if (agent->state == CA_STATE_INVALID)
-                agent->state = CA_STATE_WALKING;
+            // Only reset position / state if actually changed
+            if (nodePos != agentPos)
+            {
+                agentPos = nodePos;
+
+                // If the node has been externally altered, provide the opportunity for DetourCrowd to reevaluate the crowd agent
+                if (agent->state == CA_STATE_INVALID)
+                    agent->state = CA_STATE_WALKING;
+            }
         }
     }
 }
 
 const dtCrowdAgent* CrowdAgent::GetDetourCrowdAgent() const
 {
-    return IsInCrowd() ? crowdManager_->GetDetourCrowdAgent(agentCrowdId_) : 0;
+    return IsInCrowd() ? crowdManager_->GetDetourCrowdAgent(agentCrowdId_) : nullptr;
+}
+
+void CrowdAgent::HandleNavigationTileAdded(StringHash eventType, VariantMap& eventData)
+{
+    if (!crowdManager_)
+        return;
+
+    auto* mesh = static_cast<NavigationMesh*>(eventData[NavigationTileAdded::P_MESH].GetPtr());
+    if (crowdManager_->GetNavigationMesh() != mesh)
+        return;
+
+    const IntVector2 tile = eventData[NavigationTileRemoved::P_TILE].GetIntVector2();
+    const IntVector2 agentTile = mesh->GetTileIndex(node_->GetWorldPosition());
+    const BoundingBox boundingBox = mesh->GetTileBoudningBox(agentTile);
+    if (tile == agentTile && IsInCrowd())
+    {
+        RemoveAgentFromCrowd();
+        AddAgentToCrowd();
+    }
 }
 
 }

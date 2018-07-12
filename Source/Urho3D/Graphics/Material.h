@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -56,14 +56,16 @@ struct MaterialShaderParameter
 struct TechniqueEntry
 {
     /// Construct with defaults.
-    TechniqueEntry();
+    TechniqueEntry() noexcept;
     /// Construct with parameters.
-    TechniqueEntry(Technique* tech, unsigned qualityLevel, float lodDistance);
+    TechniqueEntry(Technique* tech, unsigned qualityLevel, float lodDistance) noexcept;
     /// Destruct.
-    ~TechniqueEntry();
+    ~TechniqueEntry() noexcept = default;
 
     /// Technique.
     SharedPtr<Technique> technique_;
+    /// Original technique, in case the material adds shader compilation defines. The modified clones are requested from it.
+    SharedPtr<Technique> original_;
     /// Quality level.
     int qualityLevel_;
     /// LOD distance.
@@ -80,14 +82,14 @@ public:
     /// Copy construct.
     ShaderParameterAnimationInfo(const ShaderParameterAnimationInfo& other);
     /// Destruct.
-    ~ShaderParameterAnimationInfo();
+    ~ShaderParameterAnimationInfo() override;
 
     /// Return shader parameter name.
     const String& GetName() const { return name_; }
 
 protected:
     /// Apply new animation value to the target object. Called by Update().
-    virtual void ApplyValue(const Variant& newValue);
+    void ApplyValue(const Variant& newValue) override;
 
 private:
     /// Shader parameter name.
@@ -107,18 +109,18 @@ class URHO3D_API Material : public Resource
 
 public:
     /// Construct.
-    Material(Context* context);
+    explicit Material(Context* context);
     /// Destruct.
-    ~Material();
+    ~Material() override;
     /// Register object factory.
     static void RegisterObject(Context* context);
 
     /// Load resource from stream. May be called from a worker thread. Return true if successful.
-    virtual bool BeginLoad(Deserializer& source);
+    bool BeginLoad(Deserializer& source) override;
     /// Finish resource loading. Always called from the main thread. Return true if successful.
-    virtual bool EndLoad();
+    bool EndLoad() override;
     /// Save resource. Return true if successful.
-    virtual bool Save(Serializer& dest) const;
+    bool Save(Serializer& dest) const override;
 
     /// Load from an XML element. Return true if successful.
     bool Load(const XMLElement& source);
@@ -134,6 +136,10 @@ public:
     void SetNumTechniques(unsigned num);
     /// Set technique.
     void SetTechnique(unsigned index, Technique* tech, unsigned qualityLevel = 0, float lodDistance = 0.0f);
+    /// Set additional vertex shader defines. Separate multiple defines with spaces. Setting defines at the material level causes technique(s) to be cloned as necessary.
+    void SetVertexShaderDefines(const String& defines);
+    /// Set additional pixel shader defines. Separate multiple defines with spaces. Setting defines at the material level causes technique(s) to be cloned as necessary.
+    void SetPixelShaderDefines(const String& defines);
     /// Set shader parameter.
     void SetShaderParameter(const String& name, const Variant& value);
     /// Set shader parameter animation.
@@ -155,10 +161,16 @@ public:
     void SetShadowCullMode(CullMode mode);
     /// Set polygon fill mode. Interacts with the camera's fill mode setting so that the "least filled" mode will be used.
     void SetFillMode(FillMode mode);
-    /// Set depth bias.
+    /// Set depth bias parameters for depth write and compare. Note that the normal offset parameter is not used and will not be saved, as it affects only shadow map sampling during light rendering.
     void SetDepthBias(const BiasParameters& parameters);
+    /// Set alpha-to-coverage mode on all passes.
+    void SetAlphaToCoverage(bool enable);
+    /// Set line antialiasing on/off. Has effect only on models that consist of line lists.
+    void SetLineAntiAlias(bool enable);
     /// Set 8-bit render order within pass. Default 128. Lower values will render earlier and higher values later, taking precedence over e.g. state and distance sorting.
     void SetRenderOrder(unsigned char order);
+    /// Set whether to use in occlusion rendering. Default true.
+    void SetOcclusion(bool enable);
     /// Associate the material with a scene to ensure that shader parameter animation happens in sync with scene update, respecting the scene time scale. If no scene is set, the global update events will be used.
     void SetScene(Scene* scene);
     /// Remove shader parameter.
@@ -190,6 +202,11 @@ public:
     /// Return all textures.
     const HashMap<TextureUnit, SharedPtr<Texture> >& GetTextures() const { return textures_; }
 
+    /// Return additional vertex shader defines.
+    const String& GetVertexShaderDefines() const { return vertexShaderDefines_; }
+    /// Return additional pixel shader defines.
+    const String& GetPixelShaderDefines() const { return pixelShaderDefines_; }
+
     /// Return shader parameter.
     const Variant& GetShaderParameter(const String& name) const;
     /// Return shader parameter animation.
@@ -214,9 +231,15 @@ public:
     /// Return depth bias.
     const BiasParameters& GetDepthBias() const { return depthBias_; }
 
+    /// Return alpha-to-coverage mode.
+    bool GetAlphaToCoverage() const { return alphaToCoverage_; }
+
+    /// Return whether line antialiasing is enabled.
+    bool GetLineAntiAlias() const { return lineAntiAlias_; }
+
     /// Return render order.
     unsigned char GetRenderOrder() const { return renderOrder_; }
-    
+
     /// Return last auxiliary view rendered frame number.
     unsigned GetAuxViewFrameNumber() const { return auxViewFrameNumber_; }
 
@@ -238,19 +261,19 @@ public:
     static Variant ParseShaderParameterValue(const String& value);
 
 private:
-    /// Helper function for loading JSON files
+    /// Helper function for loading JSON files.
     bool BeginLoadJSON(Deserializer& source);
-    /// Helper function for loading XML files
+    /// Helper function for loading XML files.
     bool BeginLoadXML(Deserializer& source);
 
-    /// Re-evaluate occlusion rendering.
-    void CheckOcclusion();
     /// Reset to defaults.
     void ResetToDefaults();
     /// Recalculate shader parameter hash.
     void RefreshShaderParameterHash();
     /// Recalculate the memory used by the material.
     void RefreshMemoryUse();
+    /// Reapply shader defines to technique index. By default reapply all.
+    void ApplyShaderDefines(unsigned index = M_MAX_UNSIGNED);
     /// Return shader parameter animation info.
     ShaderParameterAnimationInfo* GetShaderParameterAnimationInfo(const String& name) const;
     /// Update whether should be subscribed to scene or global update events for shader parameter animation.
@@ -266,28 +289,36 @@ private:
     HashMap<StringHash, MaterialShaderParameter> shaderParameters_;
     /// %Shader parameters animation infos.
     HashMap<StringHash, SharedPtr<ShaderParameterAnimationInfo> > shaderParameterAnimationInfos_;
+    /// Vertex shader defines.
+    String vertexShaderDefines_;
+    /// Pixel shader defines.
+    String pixelShaderDefines_;
     /// Normal culling mode.
-    CullMode cullMode_;
+    CullMode cullMode_{};
     /// Culling mode for shadow rendering.
-    CullMode shadowCullMode_;
+    CullMode shadowCullMode_{};
     /// Polygon fill mode.
-    FillMode fillMode_;
+    FillMode fillMode_{};
     /// Depth bias parameters.
-    BiasParameters depthBias_;
+    BiasParameters depthBias_{};
     /// Render order value.
-    unsigned char renderOrder_;
+    unsigned char renderOrder_{};
     /// Last auxiliary view rendered frame number.
-    unsigned auxViewFrameNumber_;
+    unsigned auxViewFrameNumber_{};
     /// Shader parameter hash value.
-    unsigned shaderParameterHash_;
+    unsigned shaderParameterHash_{};
+    /// Alpha-to-coverage flag.
+    bool alphaToCoverage_{};
+    /// Line antialiasing flag.
+    bool lineAntiAlias_{};
     /// Render occlusion flag.
-    bool occlusion_;
+    bool occlusion_{true};
     /// Specular lighting flag.
-    bool specular_;
+    bool specular_{};
     /// Flag for whether is subscribed to animation updates.
-    bool subscribed_;
+    bool subscribed_{};
     /// Flag to suppress parameter hash and memory use recalculation when setting multiple shader parameters (loading or resetting the material.)
-    bool batchedParameterUpdate_;
+    bool batchedParameterUpdate_{};
     /// XML file used while loading.
     SharedPtr<XMLFile> loadXMLFile_;
     /// JSON file used while loading.

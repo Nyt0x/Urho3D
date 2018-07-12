@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -37,9 +37,7 @@ class VertexBuffer;
 struct DecalVertex
 {
     /// Construct with defaults.
-    DecalVertex()
-    {
-    }
+    DecalVertex() = default;
 
     /// Construct with position and normal.
     DecalVertex(const Vector3& position, const Vector3& normal) :
@@ -69,9 +67,9 @@ struct DecalVertex
     /// Tangent.
     Vector4 tangent_;
     /// Blend weights.
-    float blendWeights_[4];
+    float blendWeights_[4]{};
     /// Blend indices.
-    unsigned char blendIndices_[4];
+    unsigned char blendIndices_[4]{};
 };
 
 /// One decal in a decal set.
@@ -108,24 +106,24 @@ class URHO3D_API DecalSet : public Drawable
 
 public:
     /// Construct.
-    DecalSet(Context* context);
+    explicit DecalSet(Context* context);
     /// Destruct.
-    virtual ~DecalSet();
+    ~DecalSet() override;
     /// Register object factory.
     static void RegisterObject(Context* context);
 
     /// Apply attribute changes that can not be applied immediately. Called after scene load or a network update.
-    virtual void ApplyAttributes();
+    void ApplyAttributes() override;
     /// Handle enabled/disabled state change.
-    virtual void OnSetEnabled();
+    void OnSetEnabled() override;
     /// Process octree raycast. May be called from a worker thread.
-    virtual void ProcessRayQuery(const RayOctreeQuery& query, PODVector<RayQueryResult>& results);
+    void ProcessRayQuery(const RayOctreeQuery& query, PODVector<RayQueryResult>& results) override;
     /// Calculate distance and prepare batches for rendering. May be called from worker thread(s), possibly re-entrantly.
-    virtual void UpdateBatches(const FrameInfo& frame);
+    void UpdateBatches(const FrameInfo& frame) override;
     /// Prepare geometry for rendering. Called from a worker thread if possible (no GPU update.)
-    virtual void UpdateGeometry(const FrameInfo& frame);
+    void UpdateGeometry(const FrameInfo& frame) override;
     /// Return whether a geometry update is necessary, and if it can happen in a worker thread.
-    virtual UpdateGeometryType GetUpdateGeometryType();
+    UpdateGeometryType GetUpdateGeometryType() override;
 
     /// Set material. The material should use a small negative depth bias to avoid Z-fighting.
     void SetMaterial(Material* material);
@@ -133,6 +131,8 @@ public:
     void SetMaxVertices(unsigned num);
     /// Set maximum number of decal vertex indices.
     void SetMaxIndices(unsigned num);
+    /// Set whether to optimize GPU buffer sizes according to current amount of decals. Default false, which will size the buffers according to the maximum vertices/indices. When true, buffers will be reallocated whenever decals are added/removed, which can be worse for performance.
+    void SetOptimizeBufferSize(bool enable);
     /// Add a decal at world coordinates, using a target drawable's geometry for reference. If the decal needs to move with the target, the decal component should be created to the target's node. Return true if successful.
     bool AddDecal(Drawable* target, const Vector3& worldPosition, const Quaternion& worldRotation, float size, float aspectRatio,
         float depth, const Vector2& topLeftUV, const Vector2& bottomRightUV, float timeToLive = 0.0f, float normalCutoff = 0.1f,
@@ -160,6 +160,9 @@ public:
     /// Return maximum number of decal vertex indices.
     unsigned GetMaxIndices() const { return maxIndices_; }
 
+    /// Return whether is optimizing GPU buffer sizes according to current amount of decals.
+    bool GetOptimizeBufferSize() const { return optimizeBufferSize_; }
+
     /// Set material attribute.
     void SetMaterialAttr(const ResourceRef& value);
     /// Set decals attribute.
@@ -171,9 +174,9 @@ public:
 
 protected:
     /// Recalculate the world-space bounding box.
-    virtual void OnWorldBoundingBoxUpdate();
+    void OnWorldBoundingBoxUpdate() override;
     /// Handle node transform being dirtied.
-    virtual void OnMarkedDirty(Node* node);
+    void OnMarkedDirty(Node* node) override;
 
 private:
     /// Get triangle faces from the target geometry.
@@ -199,8 +202,6 @@ private:
     void MarkDecalsDirty();
     /// Recalculate the local-space bounding box.
     void CalculateBoundingBox();
-    /// Resize decal vertex and index buffers.
-    void UpdateBufferSize();
     /// Rewrite decal vertex and index buffers.
     void UpdateBuffers();
     /// Recalculate skinning.
@@ -234,11 +235,11 @@ private:
     unsigned maxVertices_;
     /// Maximum indices.
     unsigned maxIndices_;
+    /// Optimize buffer sizes flag.
+    bool optimizeBufferSize_;
     /// Skinned mode flag.
     bool skinned_;
-    /// Vertex buffer needs resize flag.
-    bool bufferSizeDirty_;
-    /// Vertex buffer needs rewrite flag.
+    /// Vertex buffer needs rewrite / resizing flag.
     bool bufferDirty_;
     /// Bounding box needs update flag.
     bool boundingBoxDirty_;

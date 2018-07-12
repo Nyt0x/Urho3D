@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -74,9 +74,7 @@ ScrollBar::ScrollBar(Context* context) :
     SetOrientation(O_HORIZONTAL);
 }
 
-ScrollBar::~ScrollBar()
-{
-}
+ScrollBar::~ScrollBar() = default;
 
 void ScrollBar::RegisterObject(Context* context)
 {
@@ -112,11 +110,11 @@ void ScrollBar::ApplyAttributes()
     }
 }
 
-void ScrollBar::OnResize()
+void ScrollBar::OnResize(const IntVector2& newSize, const IntVector2& delta)
 {
     if (slider_->GetOrientation() == O_HORIZONTAL)
     {
-        int height = GetHeight();
+        int height = newSize.y_;
         int sliderWidth = Max(GetWidth() - 2 * height, 0);
 
         backButton_->SetSize(height, height);
@@ -129,7 +127,7 @@ void ScrollBar::OnResize()
     }
     else
     {
-        int width = GetWidth();
+        int width = newSize.x_;
         int sliderHeight = Max(GetHeight() - 2 * width, 0);
 
         backButton_->SetSize(width, width);
@@ -162,7 +160,7 @@ void ScrollBar::SetOrientation(Orientation orientation)
         forwardButton_->SetImageRect(downRect_);
     }
 
-    OnResize();
+    OnResize(GetSize(), IntVector2::ZERO);
 }
 
 void ScrollBar::SetRange(float range)
@@ -300,28 +298,28 @@ void ScrollBar::HandleSliderPaged(StringHash eventType, VariantMap& eventData)
 
     // Synthesize hover event to the forward/back buttons
     if (eventData[P_OFFSET].GetInt() < 0)
-        backButton_->OnHover(IntVector2::ZERO, backButton_->ElementToScreen(IntVector2::ZERO), 0, 0, 0);
+        backButton_->OnHover(IntVector2::ZERO, backButton_->ElementToScreen(IntVector2::ZERO), 0, 0, nullptr);
     else
-        forwardButton_->OnHover(IntVector2::ZERO, forwardButton_->ElementToScreen(IntVector2::ZERO), 0, 0, 0);
+        forwardButton_->OnHover(IntVector2::ZERO, forwardButton_->ElementToScreen(IntVector2::ZERO), 0, 0, nullptr);
 
     // Synthesize click / release events to the buttons
     if (eventData[P_PRESSED].GetBool())
     {
         if (eventData[P_OFFSET].GetInt() < 0)
             backButton_->OnClickBegin(IntVector2::ZERO, backButton_->ElementToScreen(IntVector2::ZERO),
-                MOUSEB_LEFT, MOUSEB_LEFT, 0, 0);
+                MOUSEB_LEFT, MOUSEB_LEFT, 0, nullptr);
         else
             forwardButton_->OnClickBegin(IntVector2::ZERO, forwardButton_->ElementToScreen(IntVector2::ZERO),
-                MOUSEB_LEFT, MOUSEB_LEFT, 0, 0);
+                MOUSEB_LEFT, MOUSEB_LEFT, 0, nullptr);
     }
     else
     {
         if (eventData[P_OFFSET].GetInt() < 0)
             backButton_->OnClickEnd(IntVector2::ZERO, backButton_->ElementToScreen(IntVector2::ZERO),
-                MOUSEB_LEFT, 0, 0, 0, backButton_);
+                MOUSEB_LEFT, 0, 0, nullptr, backButton_);
         else
             forwardButton_->OnClickEnd(IntVector2::ZERO, forwardButton_->ElementToScreen(IntVector2::ZERO),
-                MOUSEB_LEFT, 0, 0, 0, forwardButton_);
+                MOUSEB_LEFT, 0, 0, nullptr, forwardButton_);
     }
 }
 

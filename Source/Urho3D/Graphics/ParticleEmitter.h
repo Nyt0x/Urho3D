@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -57,16 +57,16 @@ class URHO3D_API ParticleEmitter : public BillboardSet
 
 public:
     /// Construct.
-    ParticleEmitter(Context* context);
+    explicit ParticleEmitter(Context* context);
     /// Destruct.
-    virtual ~ParticleEmitter();
+    ~ParticleEmitter() override;
     /// Register object factory.
     static void RegisterObject(Context* context);
 
     /// Handle enabled/disabled state change.
-    virtual void OnSetEnabled();
+    void OnSetEnabled() override;
     /// Update before octree reinsertion. Is called from a worker thread.
-    virtual void Update(const FrameInfo& frame);
+    void Update(const FrameInfo& frame) override;
 
     /// Set particle effect.
     void SetEffect(ParticleEffect* effect);
@@ -76,6 +76,8 @@ public:
     void SetEmitting(bool enable);
     /// Set whether particles should be serialized. Default true, set false to reduce scene file size.
     void SetSerializeParticles(bool enable);
+    //// Set to remove either the emitter component or its owner node from the scene automatically on particle effect completion. Disabled by default.
+    void SetAutoRemoveMode(AutoRemoveMode mode);
     /// Reset the emission period timer.
     void ResetEmissionTimer();
     /// Remove all current particles.
@@ -97,6 +99,9 @@ public:
     /// Return whether particles are to be serialized.
     bool GetSerializeParticles() const { return serializeParticles_; }
 
+    /// Return automatic removal mode on particle effect completion.
+    AutoRemoveMode GetAutoRemoveMode() const { return autoRemove_; }
+
     /// Set particles effect attribute.
     void SetEffectAttr(const ResourceRef& value);
     /// Set particles effect attribute.
@@ -110,12 +115,14 @@ public:
 
 protected:
     /// Handle scene being assigned.
-    virtual void OnSceneSet(Scene* scene);
+    void OnSceneSet(Scene* scene) override;
 
     /// Create a new particle. Return true if there was room.
     bool EmitNewParticle();
     /// Return a free particle index.
     unsigned GetFreeParticle() const;
+    /// Return whether has active particles.
+    bool CheckActiveParticles() const;
 
 private:
     /// Handle scene post-update event.
@@ -142,7 +149,9 @@ private:
     /// Serialize particles flag.
     bool serializeParticles_;
     /// Ready to send effect finish event flag.
-    bool sendFinishEvent_;
+    bool sendFinishedEvent_;
+    /// Automatic removal mode.
+    AutoRemoveMode autoRemove_;
 };
 
 }

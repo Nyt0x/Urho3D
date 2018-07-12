@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -41,9 +41,7 @@ ConstraintWheel2D::ConstraintWheel2D(Context* context) :
 {
 }
 
-ConstraintWheel2D::~ConstraintWheel2D()
-{
-}
+ConstraintWheel2D::~ConstraintWheel2D() = default;
 
 void ConstraintWheel2D::RegisterObject(Context* context)
 {
@@ -90,7 +88,11 @@ void ConstraintWheel2D::SetEnableMotor(bool enableMotor)
 
     jointDef_.enableMotor = enableMotor;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2WheelJoint*>(joint_)->EnableMotor(enableMotor);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -101,7 +103,11 @@ void ConstraintWheel2D::SetMaxMotorTorque(float maxMotorTorque)
 
     jointDef_.maxMotorTorque = maxMotorTorque;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2WheelJoint*>(joint_)->SetMaxMotorTorque(maxMotorTorque);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -112,7 +118,11 @@ void ConstraintWheel2D::SetMotorSpeed(float motorSpeed)
 
     jointDef_.motorSpeed = motorSpeed;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2WheelJoint*>(joint_)->SetMotorSpeed(motorSpeed);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -123,7 +133,11 @@ void ConstraintWheel2D::SetFrequencyHz(float frequencyHz)
 
     jointDef_.frequencyHz = frequencyHz;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2WheelJoint*>(joint_)->SetSpringFrequencyHz(frequencyHz);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -134,19 +148,23 @@ void ConstraintWheel2D::SetDampingRatio(float dampingRatio)
 
     jointDef_.dampingRatio = dampingRatio;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2WheelJoint*>(joint_)->SetSpringDampingRatio(dampingRatio);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
 b2JointDef* ConstraintWheel2D::GetJointDef()
 {
     if (!ownerBody_ || !otherBody_)
-        return 0;
+        return nullptr;
 
     b2Body* bodyA = ownerBody_->GetBody();
     b2Body* bodyB = otherBody_->GetBody();
     if (!bodyA || !bodyB)
-        return 0;
+        return nullptr;
 
     jointDef_.Initialize(bodyA, bodyB, ToB2Vec2(anchor_), ToB2Vec2(axis_));
 

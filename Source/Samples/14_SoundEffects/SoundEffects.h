@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -43,16 +43,19 @@ class SoundEffects : public Sample
 
 public:
     /// Construct.
-    SoundEffects(Context* context);
+    explicit SoundEffects(Context* context);
 
     /// Setup before engine initialization. Modifies the engine parameters.
-    virtual void Setup();
+    void Setup() override;
     /// Setup after engine initialization and before running the main loop.
-    virtual void Start();
+    void Start() override;
 
 protected:
+
+    SoundSource* musicSource_;
+
     /// Return XML patch instructions for screen joystick layout for a specific sample app, if any.
-    virtual String GetScreenJoystickPatchString() const { return
+    String GetScreenJoystickPatchString() const override { return
         "<patch>"
         "    <add sel=\"/element/element[./attribute[@name='Name' and @value='Button2']]\">"
         "        <attribute name=\"Is Visible\" value=\"false\" />"
@@ -80,8 +83,6 @@ private:
     void HandleSoundVolume(StringHash eventType, VariantMap& eventData);
     /// Handle music volume slider change.
     void HandleMusicVolume(StringHash eventType, VariantMap& eventData);
-    /// Handle sound effect finished.
-    void HandleSoundFinished(StringHash eventType, VariantMap& eventData);
 };
 
 

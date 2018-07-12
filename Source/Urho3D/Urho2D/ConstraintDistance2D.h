@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -34,9 +34,9 @@ class URHO3D_API ConstraintDistance2D : public Constraint2D
 
 public:
     /// Construct.
-    ConstraintDistance2D(Context* context);
+    explicit ConstraintDistance2D(Context* context);
     /// Destruct.
-    virtual ~ConstraintDistance2D();
+    ~ConstraintDistance2D() override;
     /// Register object factory.
     static void RegisterObject(Context* context);
 
@@ -48,6 +48,8 @@ public:
     void SetFrequencyHz(float frequencyHz);
     /// Set damping ratio.
     void SetDampingRatio(float dampingRatio);
+    /// Set length.
+    void SetLength(float length);
 
     /// Return owner body anchor.
     const Vector2& GetOwnerBodyAnchor() const { return ownerBodyAnchor_; }
@@ -61,9 +63,12 @@ public:
     /// Return damping ratio.
     float GetDampingRatio() const { return jointDef_.dampingRatio; }
 
+    /// Return length.
+    float GetLength() const { return jointDef_.length; }
+
 private:
     /// Return joint def.
-    virtual b2JointDef* GetJointDef();
+    b2JointDef* GetJointDef() override;
 
     b2DistanceJointDef jointDef_;
     /// Owner body anchor.

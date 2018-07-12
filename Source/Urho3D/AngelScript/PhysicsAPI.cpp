@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -29,6 +29,7 @@
 #include "../Physics/Constraint.h"
 #include "../Physics/PhysicsWorld.h"
 #include "../Physics/RigidBody.h"
+#include "../Physics/RaycastVehicle.h"
 #include "../Scene/Scene.h"
 
 namespace Urho3D
@@ -42,7 +43,7 @@ static PhysicsWorld* SceneGetPhysicsWorld(Scene* ptr)
 static PhysicsWorld* GetPhysicsWorld()
 {
     Scene* scene = GetScriptContextScene();
-    return scene ? scene->GetComponent<PhysicsWorld>() : 0;
+    return scene ? scene->GetComponent<PhysicsWorld>() : nullptr;
 }
 
 static void ConstructPhysicsRaycastResult(PhysicsRaycastResult* ptr)
@@ -242,10 +243,10 @@ static PhysicsRaycastResult PhysicsWorldRaycastSingle(const Ray& ray, float maxD
     return result;
 }
 
-static PhysicsRaycastResult PhysicsWorldRaycastSingleSegmented(const Ray& ray, float maxDistance, float segmentDistance, unsigned collisionMask, PhysicsWorld* ptr)
+static PhysicsRaycastResult PhysicsWorldRaycastSingleSegmented(const Ray& ray, float maxDistance, float segmentDistance, unsigned collisionMask, float overlapDistance, PhysicsWorld* ptr)
 {
     PhysicsRaycastResult result;
-    ptr->RaycastSingleSegmented(result, ray, maxDistance, segmentDistance, collisionMask);
+    ptr->RaycastSingleSegmented(result, ray, maxDistance, segmentDistance, collisionMask, overlapDistance);
     return result;
 }
 
@@ -311,7 +312,7 @@ static void RegisterPhysicsWorld(asIScriptEngine* engine)
     engine->RegisterObjectMethod("PhysicsWorld", "void UpdateCollisions()", asMETHOD(PhysicsWorld, UpdateCollisions), asCALL_THISCALL);
     engine->RegisterObjectMethod("PhysicsWorld", "Array<PhysicsRaycastResult>@ Raycast(const Ray&in, float, uint collisionMask = 0xffff)", asFUNCTION(PhysicsWorldRaycast), asCALL_CDECL_OBJLAST);
     engine->RegisterObjectMethod("PhysicsWorld", "PhysicsRaycastResult RaycastSingle(const Ray&in, float, uint collisionMask = 0xffff)", asFUNCTION(PhysicsWorldRaycastSingle), asCALL_CDECL_OBJLAST);
-    engine->RegisterObjectMethod("PhysicsWorld", "PhysicsRaycastResult RaycastSingleSegmented(const Ray&in, float, float, uint collisionMask = 0xffff)", asFUNCTION(PhysicsWorldRaycastSingleSegmented), asCALL_CDECL_OBJLAST);
+    engine->RegisterObjectMethod("PhysicsWorld", "PhysicsRaycastResult RaycastSingleSegmented(const Ray&in, float, float, uint collisionMask = 0xffff, float overlapDistance = 0.1f)", asFUNCTION(PhysicsWorldRaycastSingleSegmented), asCALL_CDECL_OBJLAST);
     engine->RegisterObjectMethod("PhysicsWorld", "PhysicsRaycastResult SphereCast(const Ray&in, float, float, uint collisionMask = 0xffff)", asFUNCTION(PhysicsWorldSphereCast), asCALL_CDECL_OBJLAST);
     // There seems to be a bug in AngelScript resulting in a crash if we use an auto handle with this function.
     // Work around by manually releasing the CollisionShape handle
@@ -342,12 +343,78 @@ static void RegisterPhysicsWorld(asIScriptEngine* engine)
     engine->RegisterGlobalFunction("PhysicsWorld@+ get_physicsWorld()", asFUNCTION(GetPhysicsWorld), asCALL_CDECL);
 }
 
+void RegisterRaycastVehicleAPI(asIScriptEngine* engine)
+{
+    RegisterComponent<RaycastVehicle>(engine, "RaycastVehicle");
+    engine->RegisterObjectMethod("RaycastVehicle", "void AddWheel(Node@+, Vector3, Vector3, float, float, bool)", asMETHOD(RaycastVehicle, AddWheel), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void ResetSuspension()", asMETHOD(RaycastVehicle, ResetSuspension), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void UpdateWheelTransform(int, bool)", asMETHOD(RaycastVehicle, UpdateWheelTransform), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetSteeringValue(int, float)", asMETHOD(RaycastVehicle, SetSteeringValue), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetWheelSuspensionStiffness(int, float)", asMETHOD(RaycastVehicle, SetWheelSuspensionStiffness), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetWheelDampingRelaxation(int, float)", asMETHOD(RaycastVehicle, SetWheelDampingRelaxation), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetWheelDampingCompression(int, float)", asMETHOD(RaycastVehicle, SetWheelDampingCompression), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetWheelFrictionSlip(int, float)", asMETHOD(RaycastVehicle, SetWheelFrictionSlip), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetWheelRollInfluence(int, float)", asMETHOD(RaycastVehicle, SetWheelRollInfluence), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetEngineForce(int, float)", asMETHOD(RaycastVehicle, SetEngineForce), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetBrake(int, float)", asMETHOD(RaycastVehicle, SetBrake), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetWheelRadius(int, float)", asMETHOD(RaycastVehicle, SetWheelRadius), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void ResetWheels()", asMETHOD(RaycastVehicle, ResetWheels), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetWheelRestLength(int, float)", asMETHOD(RaycastVehicle, SetWheelRestLength), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetWheelSkidInfo(int, float)", asMETHOD(RaycastVehicle, SetWheelSkidInfo), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetMaxSuspensionTravel(int, float)", asMETHOD(RaycastVehicle, SetMaxSuspensionTravel), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetWheelDirection(int, Vector3)", asMETHOD(RaycastVehicle, SetWheelDirection), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetWheelAxle(int, Vector3)", asMETHOD(RaycastVehicle, SetWheelAxle), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void set_maxSideSlipSpeed(float)", asMETHOD(RaycastVehicle, SetMaxSideSlipSpeed), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void SetWheelSkidInfoCumulative(int, float)", asMETHOD(RaycastVehicle, SetWheelSkidInfoCumulative), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void Init()", asMETHOD(RaycastVehicle, Init), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "Vector3 GetWheelPosition(int)", asMETHOD(RaycastVehicle, GetWheelPosition), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "Vector3 GetWheelRotation(int)", asMETHOD(RaycastVehicle, GetWheelRotation), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "Vector3 GetWheelConnectionPoint(int)", asMETHOD(RaycastVehicle, GetWheelConnectionPoint), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "Node@+ GetWheelNode(int)", asMETHOD(RaycastVehicle, GetWheelNode), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetSteeringValue(int)", asMETHOD(RaycastVehicle, GetSteeringValue), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetWheelSuspensionStiffness(int)", asMETHOD(RaycastVehicle, GetWheelSuspensionStiffness), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetWheelDampingRelaxation(int)", asMETHOD(RaycastVehicle, GetWheelDampingRelaxation), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetWheelDampingCompression(int)", asMETHOD(RaycastVehicle, GetWheelDampingCompression), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetWheelFrictionSlip(int)", asMETHOD(RaycastVehicle, GetWheelFrictionSlip), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetWheelRollInfluence(int)", asMETHOD(RaycastVehicle, GetWheelRollInfluence), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetEngineForce(int)", asMETHOD(RaycastVehicle, GetEngineForce), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetBrake(int)", asMETHOD(RaycastVehicle, GetBrake), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetWheelRadius(int)", asMETHOD(RaycastVehicle, GetWheelRadius), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetWheelRestLength(int)", asMETHOD(RaycastVehicle, GetWheelRestLength), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetWheelSkidInfo(int)", asMETHOD(RaycastVehicle, GetWheelSkidInfo), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "bool WheelIsGrounded(int)", asMETHOD(RaycastVehicle, WheelIsGrounded), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetMaxSuspensionTravel(int)", asMETHOD(RaycastVehicle, GetMaxSuspensionTravel), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "Vector3 GetWheelDirection(int)", asMETHOD(RaycastVehicle, GetWheelDirection), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "Vector3 GetWheelAxle(int)", asMETHOD(RaycastVehicle, GetWheelAxle), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetWheelSideSlipSpeed(int)", asMETHOD(RaycastVehicle, GetWheelSideSlipSpeed), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float get_maxSideSlipSpeed()", asMETHOD(RaycastVehicle, GetMaxSideSlipSpeed), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float GetWheelSkidInfoCumulative(int)", asMETHOD(RaycastVehicle, GetWheelSkidInfoCumulative), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "bool IsFrontWheel(int)", asMETHOD(RaycastVehicle, IsFrontWheel), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "Vector3 GetContactPosition(int)", asMETHOD(RaycastVehicle, GetContactPosition), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "Vector3 GetContactNormal(int)", asMETHOD(RaycastVehicle, GetContactNormal), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void set_inAirRPM(float)", asMETHOD(RaycastVehicle, SetInAirRPM), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "float get_inAirRPM()", asMETHOD(RaycastVehicle, GetInAirRPM), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "void set_coordinateSystem(const IntVector3&in = RIGHT_UP_FORWARD)", asMETHOD(RaycastVehicle, SetCoordinateSystem), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "IntVector3 get_coordinateSystem() const", asMETHOD(RaycastVehicle, GetCoordinateSystem), asCALL_THISCALL);
+    engine->RegisterObjectMethod("RaycastVehicle", "int get_numWheels()", asMETHOD(RaycastVehicle, GetNumWheels), asCALL_THISCALL);
+
+    engine->SetDefaultNamespace("RaycastVehicle");
+    engine->RegisterGlobalProperty("const IntVector3 RIGHT_UP_FORWARD", (void*)&RaycastVehicle::RIGHT_UP_FORWARD);
+    engine->RegisterGlobalProperty("const IntVector3 RIGHT_FORWARD_UP", (void*)&RaycastVehicle::RIGHT_FORWARD_UP);
+    engine->RegisterGlobalProperty("const IntVector3 UP_FORWARD_RIGHT", (void*)&RaycastVehicle::UP_FORWARD_RIGHT);
+    engine->RegisterGlobalProperty("const IntVector3 UP_RIGHT_FORWARD", (void*)&RaycastVehicle::UP_RIGHT_FORWARD);
+    engine->RegisterGlobalProperty("const IntVector3 FORWARD_RIGHT_UP", (void*)&RaycastVehicle::FORWARD_RIGHT_UP);
+    engine->RegisterGlobalProperty("const IntVector3 FORWARD_UP_RIGHT", (void*)&RaycastVehicle::FORWARD_UP_RIGHT);
+    engine->SetDefaultNamespace("");
+}
+
 void RegisterPhysicsAPI(asIScriptEngine* engine)
 {
     RegisterCollisionShape(engine);
     RegisterRigidBody(engine);
     RegisterConstraint(engine);
     RegisterPhysicsWorld(engine);
+    RegisterRaycastVehicleAPI(engine);
 }
 
 }

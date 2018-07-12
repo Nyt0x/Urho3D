@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -94,9 +94,19 @@ TextureUsage RenderSurface::GetUsage() const
     return parentTexture_->GetUsage();
 }
 
+int RenderSurface::GetMultiSample() const
+{
+    return parentTexture_->GetMultiSample();
+}
+
+bool RenderSurface::GetAutoResolve() const
+{
+    return parentTexture_->GetAutoResolve();
+}
+
 Viewport* RenderSurface::GetViewport(unsigned index) const
 {
-    return index < viewports_.Size() ? viewports_[index] : (Viewport*)0;
+    return index < viewports_.Size() ? viewports_[index] : nullptr;
 }
 
 }

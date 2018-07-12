@@ -36,6 +36,8 @@ struct RenderTargetInfo
     unsigned format_ @ format;
     Vector2 size_ @ size;
     RenderTargetSizeMode sizeMode_ @ sizeMode;
+    int multiSample_ @ multiSample;
+    bool autoResolve_ @ autoResolve;
     bool enabled_ @ enabled;
     bool cubemap_ @ cubemap;
     bool filtered_ @ filtered;
@@ -95,6 +97,8 @@ class RenderPath
     bool Append(XMLFile* file);
 
     void SetEnabled(const String tag, bool active);
+    bool IsEnabled(const String tag) const;
+    bool IsAdded(const String tag) const;
     void ToggleEnabled(const String tag);
     void SetRenderTarget(unsigned index, const RenderTargetInfo& info);
     void AddRenderTarget(const RenderTargetInfo& info);
@@ -122,11 +126,7 @@ static RenderPath* RenderPathClone(RenderPath* renderPath)
 {
     if (!renderPath)
         return 0;
-    
-    SharedPtr<RenderPath> clonedRenderPathPtr = renderPath->Clone();
-    RenderPath* clonedRenderPath = clonedRenderPathPtr.Get();
-    clonedRenderPathPtr.Detach();
-    
-    return clonedRenderPath;
+
+    return renderPath->Clone().Detach();
 }
 $}

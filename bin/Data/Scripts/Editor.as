@@ -18,10 +18,13 @@
 #include "Scripts/Editor/EditorResourceBrowser.as"
 #include "Scripts/Editor/EditorSpawn.as"
 #include "Scripts/Editor/EditorSoundType.as"
+#include "Scripts/Editor/EditorTerrain.as"
 #include "Scripts/Editor/EditorLayers.as"
 #include "Scripts/Editor/EditorColorWheel.as"
 #include "Scripts/Editor/EditorEventsHandlers.as"
 #include "Scripts/Editor/EditorViewDebugIcons.as"
+#include "Scripts/Editor/EditorViewSelectableOrigins.as"
+#include "Scripts/Editor/EditorViewPaintSelection.as"
 
 String configFileName;
 
@@ -56,6 +59,17 @@ void Start()
     cache.returnFailedResources = true;
     // Use OS mouse without grabbing it
     input.mouseVisible = true;
+    // If input is scaled the double the UI size (High DPI display)
+    if (input.inputScale != Vector2::ONE)
+    {
+        // Should we use the inputScale itself to scale UI?
+        ui.scale = 2;
+        // When UI scale is increased, also set the UI atlas to nearest filtering to avoid artifacts
+        // (there is no padding) and to have a sharper look
+        Texture2D@ uiTex = cache.GetResource("Texture2D", "Textures/UI.png");
+        if (uiTex !is null)
+            uiTex.filterMode = FILTER_NEAREST;
+    }
     // Use system clipboard to allow transport of text in & out from the editor
     ui.useSystemClipboard = true;
 }
@@ -74,8 +88,8 @@ void FirstFrame()
     ParseArguments();
     // Switch to real frame handler after initialization
     SubscribeToEvent("Update", "HandleUpdate");
-    SubscribeToEvent("ReloadFinished", "HandleReloadFinished");
-    SubscribeToEvent("ReloadFailed", "HandleReloadFailed");
+    SubscribeToEvent("ReloadFinished", "HandleReloadFinishOrFail");
+    SubscribeToEvent("ReloadFailed", "HandleReloadFinishOrFail");
     EditorSubscribeToEvents();
 }
 
@@ -127,7 +141,9 @@ void HandleUpdate(StringHash eventType, VariantMap& eventData)
     UpdateGizmo();
     UpdateDirtyUI();
     UpdateViewDebugIcons();
-
+    UpdateOrigins();
+    UpdatePaintSelection();
+    
     // Handle Particle Editor looping.
     if (particleEffectWindow !is null and particleEffectWindow.visible)
     {
@@ -148,14 +164,12 @@ void HandleUpdate(StringHash eventType, VariantMap& eventData)
     }
 }
 
-void HandleReloadFinished(StringHash eventType, VariantMap& eventData)
+void HandleReloadFinishOrFail(StringHash eventType, VariantMap& eventData)
 {
-    attributesFullDirty = true;
-}
-
-void HandleReloadFailed(StringHash eventType, VariantMap& eventData)
-{
-    attributesFullDirty = true;
+    Resource@ res = cast<Resource>(GetEventSender());
+    // Only refresh inspector when reloading scripts (script attributes may change)
+    if (res !is null && (res.typeName == "ScriptFile" || res.typeName == "LuaFile"))
+        attributesFullDirty = true;
 }
 
 void LoadConfig()
@@ -191,10 +205,11 @@ void LoadConfig()
         if (cameraElem.HasAttribute("fov")) viewFov = cameraElem.GetFloat("fov");
         if (cameraElem.HasAttribute("speed")) cameraBaseSpeed = cameraElem.GetFloat("speed");
         if (cameraElem.HasAttribute("limitrotation")) limitRotation = cameraElem.GetBool("limitrotation");
-        if (cameraElem.HasAttribute("mousewheelcameraposition")) mouseWheelCameraPosition = cameraElem.GetBool("mousewheelcameraposition");
         if (cameraElem.HasAttribute("viewportmode")) viewportMode = cameraElem.GetUInt("viewportmode");
         if (cameraElem.HasAttribute("mouseorbitmode")) mouseOrbitMode = cameraElem.GetInt("mouseorbitmode");
         if (cameraElem.HasAttribute("mmbpan")) mmbPanMode = cameraElem.GetBool("mmbpan");
+        if (cameraElem.HasAttribute("rotatearoundselect")) rotateAroundSelect = cameraElem.GetBool("rotatearoundselect");
+        
         UpdateViewParameters();
     }
 
@@ -203,7 +218,6 @@ void LoadConfig()
         if (objectElem.HasAttribute("cameraflymode")) cameraFlyMode = objectElem.GetBool("cameraflymode");
         if (objectElem.HasAttribute("hotkeymode")) hotKeyMode = objectElem.GetInt("hotkeymode");
         if (objectElem.HasAttribute("newnodemode")) newNodeMode = objectElem.GetInt("newnodemode");
-        if (objectElem.HasAttribute("newnodedistance")) newNodeDistance = objectElem.GetFloat("newnodedistance");
         if (objectElem.HasAttribute("movestep")) moveStep = objectElem.GetFloat("movestep");
         if (objectElem.HasAttribute("rotatestep")) rotateStep = objectElem.GetFloat("rotatestep");
         if (objectElem.HasAttribute("scalestep")) scaleStep = objectElem.GetFloat("scalestep");
@@ -250,6 +264,7 @@ void LoadConfig()
         if (renderingElem.HasAttribute("dynamicinstancing")) renderer.dynamicInstancing = renderingElem.GetBool("dynamicinstancing");
         if (renderingElem.HasAttribute("framelimiter")) engine.maxFps = renderingElem.GetBool("framelimiter") ? 200 : 0;
         if (renderingElem.HasAttribute("gammacorrection")) gammaCorrection = renderingElem.GetBool("gammacorrection");
+        if (renderingElem.HasAttribute("hdr")) HDR = renderingElem.GetBool("hdr");
     }
 
     if (!uiElem.isNull)
@@ -344,15 +359,14 @@ void SaveConfig()
     cameraElem.SetFloat("fov", viewFov);
     cameraElem.SetFloat("speed", cameraBaseSpeed);
     cameraElem.SetBool("limitrotation", limitRotation);
-    cameraElem.SetBool("mousewheelcameraposition", mouseWheelCameraPosition);
     cameraElem.SetUInt("viewportmode", viewportMode);
     cameraElem.SetInt("mouseorbitmode", mouseOrbitMode);
     cameraElem.SetBool("mmbpan", mmbPanMode);
+    cameraElem.SetBool("rotatearoundselect", rotateAroundSelect);
 
     objectElem.SetBool("cameraflymode", cameraFlyMode);
     objectElem.SetInt("hotkeymode", hotKeyMode);
     objectElem.SetInt("newnodemode", newNodeMode);
-    objectElem.SetFloat("newnodedistance", newNodeDistance);
     objectElem.SetFloat("movestep", moveStep);
     objectElem.SetFloat("rotatestep", rotateStep);
     objectElem.SetFloat("scalestep", scaleStep);
@@ -384,6 +398,7 @@ void SaveConfig()
 
     renderingElem.SetBool("framelimiter", engine.maxFps > 0);
     renderingElem.SetBool("gammacorrection", gammaCorrection);
+    renderingElem.SetBool("hdr", HDR);
 
     uiElem.SetFloat("minopacity", uiMinOpacity);
     uiElem.SetFloat("maxopacity", uiMaxOpacity);

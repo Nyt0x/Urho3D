@@ -3,7 +3,8 @@
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2015, assimp team
+Copyright (c) 2006-2017, assimp team
+
 
 All rights reserved.
 
@@ -50,11 +51,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "OFFLoader.h"
 #include "ParsingUtils.h"
 #include "fast_atof.h"
-#include <boost/scoped_ptr.hpp>
-#include "../include/assimp/IOSystem.hpp"
-#include "../include/assimp/scene.h"
-#include "../include/assimp/DefaultLogger.hpp"
-
+#include <memory>
+#include <assimp/IOSystem.hpp>
+#include <assimp/scene.h>
+#include <assimp/DefaultLogger.hpp>
+#include <assimp/importerdesc.h>
 
 using namespace Assimp;
 
@@ -93,7 +94,7 @@ bool OFFImporter::CanRead( const std::string& pFile, IOSystem* pIOHandler, bool 
     {
         if (!pIOHandler)return true;
         const char* tokens[] = {"off"};
-        return SearchFileHeaderForToken(pIOHandler,pFile,tokens,1);
+        return SearchFileHeaderForToken(pIOHandler,pFile,tokens,1,3);
     }
     return false;
 }
@@ -109,7 +110,7 @@ const aiImporterDesc* OFFImporter::GetInfo () const
 void OFFImporter::InternReadFile( const std::string& pFile,
     aiScene* pScene, IOSystem* pIOHandler)
 {
-    boost::scoped_ptr<IOStream> file( pIOHandler->Open( pFile, "rb"));
+    std::unique_ptr<IOStream> file( pIOHandler->Open( pFile, "rb"));
 
     // Check whether we can read from the file
     if( file.get() == NULL) {
@@ -138,9 +139,15 @@ void OFFImporter::InternReadFile( const std::string& pFile,
         throw DeadlyImportError("OFF: There are no valid faces");
     }
 
-    pScene->mMeshes = new aiMesh*[ pScene->mNumMeshes = 1 ];
-    aiMesh* mesh = pScene->mMeshes[0] = new aiMesh();
-    aiFace* faces = mesh->mFaces = new aiFace [mesh->mNumFaces = numFaces];
+    pScene->mNumMeshes = 1;
+    pScene->mMeshes = new aiMesh*[ pScene->mNumMeshes ];
+
+    aiMesh* mesh = new aiMesh();
+    pScene->mMeshes[0] = mesh;
+
+    mesh->mNumFaces = numFaces;
+    aiFace* faces = new aiFace [mesh->mNumFaces];
+    mesh->mFaces = faces;
 
     std::vector<aiVector3D> tempPositions(numVertices);
 
@@ -155,9 +162,9 @@ void OFFImporter::InternReadFile( const std::string& pFile,
         aiVector3D& v = tempPositions[i];
 
         sz = line; SkipSpaces(&sz);
-        sz = fast_atoreal_move<float>(sz,(float&)v.x); SkipSpaces(&sz);
-        sz = fast_atoreal_move<float>(sz,(float&)v.y); SkipSpaces(&sz);
-        fast_atoreal_move<float>(sz,(float&)v.z);
+        sz = fast_atoreal_move<ai_real>(sz,(ai_real&)v.x); SkipSpaces(&sz);
+        sz = fast_atoreal_move<ai_real>(sz,(ai_real&)v.y); SkipSpaces(&sz);
+        fast_atoreal_move<ai_real>(sz,(ai_real&)v.z);
     }
 
 
@@ -171,7 +178,8 @@ void OFFImporter::InternReadFile( const std::string& pFile,
             break;
         }
         sz = line;SkipSpaces(&sz);
-        if(!(faces->mNumIndices = strtoul10(sz,&sz)) || faces->mNumIndices > 9)
+        faces->mNumIndices = strtoul10(sz,&sz);
+        if(!(faces->mNumIndices) || faces->mNumIndices > 9)
         {
             DefaultLogger::get()->error("OFF: Faces with zero indices aren't allowed");
             --mesh->mNumFaces;
@@ -185,46 +193,57 @@ void OFFImporter::InternReadFile( const std::string& pFile,
         throw DeadlyImportError("OFF: There are no valid faces");
 
     // allocate storage for the output vertices
-    aiVector3D* verts = mesh->mVertices = new aiVector3D[mesh->mNumVertices];
+    std::vector<aiVector3D> verts;
+    verts.reserve(mesh->mNumVertices);
 
     // second: now parse all face indices
-    buffer = old;faces = mesh->mFaces;
+    buffer = old;
+    faces = mesh->mFaces;
     for (unsigned int i = 0, p = 0; i< mesh->mNumFaces;)
     {
         if(!GetNextLine(buffer,line))break;
 
         unsigned int idx;
         sz = line;SkipSpaces(&sz);
-        if(!(idx = strtoul10(sz,&sz)) || idx > 9)
+        idx = strtoul10(sz,&sz);
+        if(!(idx) || idx > 9)
             continue;
 
         faces->mIndices = new unsigned int [faces->mNumIndices];
         for (unsigned int m = 0; m < faces->mNumIndices;++m)
         {
             SkipSpaces(&sz);
-            if ((idx = strtoul10(sz,&sz)) >= numVertices)
+            idx = strtoul10(sz,&sz);
+            if ((idx) >= numVertices)
             {
                 DefaultLogger::get()->error("OFF: Vertex index is out of range");
                 idx = numVertices-1;
             }
             faces->mIndices[m] = p++;
-            *verts++ = tempPositions[idx];
+            verts.push_back(tempPositions[idx]);
         }
         ++i;
         ++faces;
     }
 
+    if (mesh->mNumVertices != verts.size()) {
+        throw DeadlyImportError("OFF: Vertex count mismatch");
+    }
+    mesh->mVertices = new aiVector3D[verts.size()];
+    memcpy(mesh->mVertices, &verts[0], verts.size() * sizeof(aiVector3D));
     // generate the output node graph
     pScene->mRootNode = new aiNode();
     pScene->mRootNode->mName.Set("<OFFRoot>");
-    pScene->mRootNode->mMeshes = new unsigned int [pScene->mRootNode->mNumMeshes = 1];
+    pScene->mRootNode->mNumMeshes = 1;
+    pScene->mRootNode->mMeshes = new unsigned int [pScene->mRootNode->mNumMeshes];
     pScene->mRootNode->mMeshes[0] = 0;
 
     // generate a default material
-    pScene->mMaterials = new aiMaterial*[pScene->mNumMaterials = 1];
+    pScene->mNumMaterials = 1;
+    pScene->mMaterials = new aiMaterial*[pScene->mNumMaterials];
     aiMaterial* pcMat = new aiMaterial();
 
-    aiColor4D clr(0.6f,0.6f,0.6f,1.0f);
+    aiColor4D clr( ai_real( 0.6 ), ai_real( 0.6 ), ai_real( 0.6 ), ai_real( 1.0 ) );
     pcMat->AddProperty(&clr,1,AI_MATKEY_COLOR_DIFFUSE);
     pScene->mMaterials[0] = pcMat;
 

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -43,7 +43,7 @@ public:
     }
 
     /// Process work items until stopped.
-    virtual void ThreadFunction()
+    void ThreadFunction() override
     {
         // Init FPU state first
         InitFPU();
@@ -122,7 +122,7 @@ SharedPtr<WorkItem> WorkQueue::GetFreeItem()
     }
 }
 
-void WorkQueue::AddWorkItem(SharedPtr<WorkItem> item)
+void WorkQueue::AddWorkItem(const SharedPtr<WorkItem>& item)
 {
     if (!item)
     {
@@ -147,14 +147,20 @@ void WorkQueue::AddWorkItem(SharedPtr<WorkItem> item)
         queue_.Push(item);
     else
     {
+        bool inserted = false;
+
         for (List<WorkItem*>::Iterator i = queue_.Begin(); i != queue_.End(); ++i)
         {
             if ((*i)->priority_ <= item->priority_)
             {
                 queue_.Insert(i, item);
+                inserted = true;
                 break;
             }
         }
+
+        if (!inserted)
+            queue_.Push(item);
     }
 
     if (threads_.Size())
@@ -376,14 +382,14 @@ void WorkQueue::ReturnToPool(SharedPtr<WorkItem>& item)
     // Check if this was a pooled item and set it to usable
     if (item->pooled_)
     {
-        // Reset the values to their defaults. This should 
+        // Reset the values to their defaults. This should
         // be safe to do here as the completed event has
         // already been handled and this is part of the
         // internal pool.
-        item->start_ = 0;
-        item->end_ = 0;
-        item->aux_ = 0;
-        item->workFunction_ = 0;
+        item->start_ = nullptr;
+        item->end_ = nullptr;
+        item->aux_ = nullptr;
+        item->workFunction_ = nullptr;
         item->priority_ = M_MAX_UNSIGNED;
         item->sendEvent_ = false;
         item->completed_ = false;
@@ -401,7 +407,7 @@ void WorkQueue::HandleBeginFrame(StringHash eventType, VariantMap& eventData)
 
         HiresTimer timer;
 
-        while (!queue_.Empty() && timer.GetUSec(false) < maxNonThreadedWorkMs_ * 1000)
+        while (!queue_.Empty() && timer.GetUSec(false) < maxNonThreadedWorkMs_ * 1000LL)
         {
             WorkItem* item = queue_.Front();
             queue_.PopFront();

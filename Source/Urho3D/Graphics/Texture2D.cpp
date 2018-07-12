@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -84,7 +84,7 @@ bool Texture2D::BeginLoad(Deserializer& source)
         loadImage_->PrecalculateLevels();
 
     // Load the optional parameters file
-    ResourceCache* cache = GetSubsystem<ResourceCache>();
+    auto* cache = GetSubsystem<ResourceCache>();
     String xmlName = ReplaceExtension(GetName(), ".xml");
     loadParameters_ = cache->GetTempResource<XMLFile>(xmlName, false);
 
@@ -109,7 +109,7 @@ bool Texture2D::EndLoad()
     return success;
 }
 
-bool Texture2D::SetSize(int width, int height, unsigned format, TextureUsage usage)
+bool Texture2D::SetSize(int width, int height, unsigned format, TextureUsage usage, int multiSample, bool autoResolve)
 {
     if (width <= 0 || height <= 0)
     {
@@ -117,20 +117,32 @@ bool Texture2D::SetSize(int width, int height, unsigned format, TextureUsage usa
         return false;
     }
 
+    multiSample = Clamp(multiSample, 1, 16);
+    if (multiSample == 1)
+        autoResolve = false;
+    else if (multiSample > 1 && usage < TEXTURE_RENDERTARGET)
+    {
+        URHO3D_LOGERROR("Multisampling is only supported for rendertarget or depth-stencil textures");
+        return false;
+    }
+
+    // Disable mipmaps if multisample & custom resolve
+    if (multiSample > 1 && autoResolve == false)
+        requestedLevels_ = 1;
+
     // Delete the old rendersurface if any
     renderSurface_.Reset();
 
     usage_ = usage;
-    
+
     if (usage >= TEXTURE_RENDERTARGET)
     {
         renderSurface_ = new RenderSurface(this);
 
-        // Clamp mode addressing by default, nearest filtering, and mipmaps disabled
-        addressMode_[COORD_U] = ADDRESS_CLAMP;
-        addressMode_[COORD_V] = ADDRESS_CLAMP;
+        // Clamp mode addressing by default and nearest filtering
+        addressModes_[COORD_U] = ADDRESS_CLAMP;
+        addressModes_[COORD_V] = ADDRESS_CLAMP;
         filterMode_ = FILTER_NEAREST;
-        requestedLevels_ = 1;
     }
 
     if (usage == TEXTURE_RENDERTARGET)
@@ -141,15 +153,39 @@ bool Texture2D::SetSize(int width, int height, unsigned format, TextureUsage usa
     width_ = width;
     height_ = height;
     format_ = format;
+    depth_ = 1;
+    multiSample_ = multiSample;
+    autoResolve_ = autoResolve;
 
     return Create();
+}
+
+bool Texture2D::GetImage(Image& image) const
+{
+    if (format_ != Graphics::GetRGBAFormat() && format_ != Graphics::GetRGBFormat())
+    {
+        URHO3D_LOGERROR("Unsupported texture format, can not convert to Image");
+        return false;
+    }
+
+    image.SetSize(width_, height_, GetComponents());
+    GetData(0, image.GetData());
+    return true;
+}
+
+SharedPtr<Image> Texture2D::GetImage() const
+{
+    auto rawImage = MakeShared<Image>(context_);
+    if (!GetImage(*rawImage))
+        return nullptr;
+    return rawImage;
 }
 
 void Texture2D::HandleRenderSurfaceUpdate(StringHash eventType, VariantMap& eventData)
 {
     if (renderSurface_ && (renderSurface_->GetUpdateMode() == SURFACE_UPDATEALWAYS || renderSurface_->IsUpdateQueued()))
     {
-        Renderer* renderer = GetSubsystem<Renderer>();
+        auto* renderer = GetSubsystem<Renderer>();
         if (renderer)
             renderer->QueueRenderSurface(renderSurface_);
         renderSurface_->ResetUpdateQueued();

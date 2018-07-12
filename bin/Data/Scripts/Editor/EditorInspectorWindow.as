@@ -189,6 +189,8 @@ void ShowAttributeInspectorWindow()
 
 void HideAttributeInspectorWindow()
 {
+    if(viewportMode == VIEWPORT_COMPACT)
+        return;
     attributeInspectorWindow.visible = false;
 }
 
@@ -264,10 +266,10 @@ void UpdateAttributeInspector(bool fullUpdate = true)
         if (editNode !is null)
         {
             String idStr;
-            if (editNode.id >= FIRST_LOCAL_ID)
-                idStr = " (Local ID " + String(editNode.id) + ")";
-            else
+            if (editNode.replicated)
                 idStr = " (ID " + String(editNode.id) + ")";
+            else
+                idStr = " (Local ID " + String(editNode.id) + ")";
             nodeType = editNode.typeName;
             nodeTitle.text = nodeType + idStr;
             LineEdit@ tagEdit = parentContainer.GetChild("TagsEdit", true);
@@ -445,7 +447,7 @@ void UpdateAttributeInspectorIcons()
             SetIconEnabledColor(componentTitle, enabledEffective, !hasSameEnabledState);
         }
     }
-    
+
     if (!editUIElements.empty)
     {
         Text@ elementTitle = GetUIElementContainer().GetChild("TitleText");
@@ -476,7 +478,7 @@ bool PreEditAttribute(Array<Serializable@>@ serializables, uint index)
     return true;
 }
 
-/// Call after the attribute values in the target serializables have been edited. 
+/// Call after the attribute values in the target serializables have been edited.
 void PostEditAttribute(Array<Serializable@>@ serializables, uint index, const Array<Variant>& oldValues)
 {
     // Create undo actions for the edits
@@ -505,7 +507,7 @@ void PostEditAttribute(Array<Serializable@>@ serializables, uint index, const Ar
         SetSceneModified();
 }
 
-/// Call after the attribute values in the target serializables have been edited. 
+/// Call after the attribute values in the target serializables have been edited.
 void PostEditAttribute(Serializable@ serializable, uint index)
 {
     // If a StaticModel/AnimatedModel/Skybox model was changed, apply a possibly different material list
@@ -515,7 +517,7 @@ void PostEditAttribute(Serializable@ serializable, uint index)
         if (staticModel !is null)
             staticModel.ApplyMaterialList();
     }
-    
+
     // If a CollisionShape changed the shape type to trimesh or convex, and a collision model is not set,
     // try to get it from a StaticModel in the same node
     if (serializable.typeName == "CollisionShape" && serializable.attributeInfos[index].name == "Shape Type")
@@ -623,7 +625,7 @@ void HandleTagsEdit(StringHash eventType, VariantMap& eventData)
 {
     LineEdit@ lineEdit = eventData["Element"].GetPtr();
     Array<String> tags = lineEdit.text.Split(';');
-    
+
     if (editUIElement !is null)
     {
         editUIElement.RemoveAllTags();
@@ -648,7 +650,7 @@ void HandleTagsSelect(StringHash eventType, VariantMap& eventData)
     {
         // 1. Add established tags from current editable UIElement to menu
         Array<String> elementTags = editUIElement.tags;
-        for (uint i = 0; i < elementTags.length; i++) 
+        for (uint i = 0; i < elementTags.length; i++)
         {
             bool isHasTag = editUIElement.HasTag(elementTags[i]);
             String taggedIndicator = (isHasTag ? Indicator : "");
@@ -657,7 +659,7 @@ void HandleTagsSelect(StringHash eventType, VariantMap& eventData)
 
         // 2. Add default tags
         Array<String> stdTags = defaultTags.Split(';');
-        for (uint i= 0; i < stdTags.length; i++) 
+        for (uint i= 0; i < stdTags.length; i++)
         {
             bool isHasTag = editUIElement.HasTag(stdTags[i]);
             // Add this tag into menu if only Node not tadded with it yet, otherwise it showed on step 1.
@@ -672,7 +674,7 @@ void HandleTagsSelect(StringHash eventType, VariantMap& eventData)
     {
         // 1. Add established tags from Node to menu
         Array<String> nodeTags = editNode.tags;
-        for (uint i = 0; i < nodeTags.length; i++) 
+        for (uint i = 0; i < nodeTags.length; i++)
         {
             bool isHasTag = editNode.HasTag(nodeTags[i]);
             String taggedIndicator = (isHasTag ? Indicator : "");
@@ -705,7 +707,7 @@ void HandleTagsSelect(StringHash eventType, VariantMap& eventData)
             }
         }
     }
-    
+
     // if any action has been added, add also Reset and Cancel and show menu
     if (actions.length > 0)
     {
@@ -713,13 +715,13 @@ void HandleTagsSelect(StringHash eventType, VariantMap& eventData)
         actions.Push(CreateContextMenuItem("Cancel", "HandleTagsMenuSelectionDivisor"));
         ActivateContextMenu(actions);
     }
-    
+
 }
 void HandleTagsMenuSelectionDivisor()
 {
     //do nothing
 }
-void HandleTagsMenuSelection() 
+void HandleTagsMenuSelection()
 {
     Menu@ menu = GetEventSender();
     if (menu is null)
@@ -736,7 +738,7 @@ void HandleTagsMenuSelection()
             UpdateAttributeInspector();
             return;
         }
-        
+
         if (!editUIElement.HasTag(menuSelectedTag))
         {
             editUIElement.AddTag(menuSelectedTag.Trimmed());
@@ -807,7 +809,7 @@ void HandleResetToDefault(StringHash eventType, VariantMap& eventData)
     attributesFullDirty = true;
 }
 
-/// Handle create new user-defined variable event for node target. 
+/// Handle create new user-defined variable event for node target.
 void CreateNodeVariable(StringHash eventType, VariantMap& eventData)
 {
     if (editNodes.empty)
@@ -870,7 +872,7 @@ void DeleteNodeVariable(StringHash eventType, VariantMap& eventData)
                 break;
             }
         }
-        
+
         if (!inUse)
             editorScene.UnregisterVar(delName);
     }
@@ -969,7 +971,7 @@ String GetVarName(StringHash hash)
 
 bool inSetStyleListSelection = false;
 
-/// Select/highlight the matching style in the style drop-down-list based on specified style. 
+/// Select/highlight the matching style in the style drop-down-list based on specified style.
 void SetStyleListSelection(DropDownList@ styleList, const String&in style)
 {
     // Prevent infinite loop upon initial style selection

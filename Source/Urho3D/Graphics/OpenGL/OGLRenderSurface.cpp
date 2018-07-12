@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -42,16 +42,14 @@
 namespace Urho3D
 {
 
-RenderSurface::RenderSurface(Texture* parentTexture) :
+RenderSurface::RenderSurface(Texture* parentTexture) :      // NOLINT(hicpp-member-init)
     parentTexture_(parentTexture),
     target_(GL_TEXTURE_2D),
-    renderBuffer_(0),
-    updateMode_(SURFACE_UPDATEVISIBLE),
-    updateQueued_(false)
+    renderBuffer_(0)
 {
 }
 
-bool RenderSurface::CreateRenderBuffer(unsigned width, unsigned height, unsigned format)
+bool RenderSurface::CreateRenderBuffer(unsigned width, unsigned height, unsigned format, int multiSample)
 {
     Graphics* graphics = parentTexture_->GetGraphics();
     if (!graphics)
@@ -59,10 +57,31 @@ bool RenderSurface::CreateRenderBuffer(unsigned width, unsigned height, unsigned
 
     Release();
 
-    glGenRenderbuffersEXT(1, &renderBuffer_);
-    glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, renderBuffer_);
-    glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT, format, width, height);
-    glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, 0);
+#ifndef GL_ES_VERSION_2_0
+    if (Graphics::GetGL3Support())
+    {
+        glGenRenderbuffers(1, &renderBuffer_);
+        glBindRenderbuffer(GL_RENDERBUFFER, renderBuffer_);
+        if (multiSample > 1)
+            glRenderbufferStorageMultisample(GL_RENDERBUFFER, multiSample, format, width, height);
+        else
+            glRenderbufferStorage(GL_RENDERBUFFER, format, width, height);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+    }
+    else
+#endif
+    {
+        glGenRenderbuffersEXT(1, &renderBuffer_);
+        glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, renderBuffer_);
+#ifndef GL_ES_VERSION_2_0
+        if (multiSample > 1)
+            glRenderbufferStorageMultisampleEXT(GL_RENDERBUFFER_EXT, multiSample, format, width, height);
+        else
+#endif
+            glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT, format, width, height);
+        glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, 0);
+    }
+
     return true;
 }
 

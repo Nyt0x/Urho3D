@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -22,6 +22,8 @@
 
 #pragma once
 
+#include "../Core/Variant.h"
+
 namespace Urho3D
 {
 
@@ -39,7 +41,7 @@ enum JSONValueType
     /// JSON array type.
     JSON_ARRAY,
     /// JSON object type.
-    JSON_OBJECT,
+    JSON_OBJECT
 };
 
 /// JSON number type.
@@ -52,83 +54,83 @@ enum JSONNumberType
     /// Unsigned integer.
     JSONNT_UINT,
     /// Float or double.
-    JSONNT_FLOAT_DOUBLE,
+    JSONNT_FLOAT_DOUBLE
 };
 
 class JSONValue;
 
 /// JSON array type.
-typedef Vector<JSONValue> JSONArray;
+using JSONArray = Vector<JSONValue>;
 /// JSON object type.
-typedef HashMap<String, JSONValue> JSONObject;
+using JSONObject = HashMap<String, JSONValue>;
 /// JSON object iterator.
-typedef JSONObject::Iterator JSONObjectIterator;
+using JSONObjectIterator = JSONObject::Iterator;
 /// Constant JSON object iterator.
-typedef JSONObject::ConstIterator ConstJSONObjectIterator;
+using ConstJSONObjectIterator = JSONObject::ConstIterator;
 
 /// JSON value class.
 class URHO3D_API JSONValue
 {
 public:
     /// Construct null value.
-    JSONValue() : 
+    JSONValue() :
         type_(0)
     {
     }
     /// Construct with a boolean.
-    JSONValue(bool value) :
+    JSONValue(bool value) :         // NOLINT(google-explicit-constructor)
         type_(0)
     {
         *this = value;
     }
     /// Construct with a integer.
-    JSONValue(int value) :
+    JSONValue(int value) :          // NOLINT(google-explicit-constructor)
         type_(0)
     {
         *this = value;
     }
     /// Construct with a unsigned integer.
-    JSONValue(unsigned value) :
+    JSONValue(unsigned value) :     // NOLINT(google-explicit-constructor)
         type_(0)
     {
         *this = value;
     }
     /// Construct with a float.
-    JSONValue(float value) :
+    JSONValue(float value) :        // NOLINT(google-explicit-constructor)
         type_(0)
     {
         *this = value;
     }
     /// Construct with a double.
-    JSONValue(double value) :
+    JSONValue(double value) :       // NOLINT(google-explicit-constructor)
         type_(0)
     {
         *this = value;
     }
     /// Construct with a string.
-    JSONValue(const String& value) :
+    JSONValue(const String& value) :    // NOLINT(google-explicit-constructor)
         type_(0)
     {
         *this = value;
     }
     /// Construct with a C string.
-    JSONValue(const char* value) :
+    JSONValue(const char* value) :      // NOLINT(google-explicit-constructor)
         type_(0)
     {
         *this = value;
     }
     /// Construct with a JSON array.
-    JSONValue(const JSONArray& value) :
+    JSONValue(const JSONArray& value) :     // NOLINT(google-explicit-constructor)
         type_(0)
     {
         *this = value;
     }
     /// Construct with a JSON object.
-    JSONValue(const JSONObject& value) :
+    JSONValue(const JSONObject& value) :    // NOLINT(google-explicit-constructor)
         type_(0)
     {
         *this = value;
-    }    
+    }
     /// Copy-construct from another JSON value.
     JSONValue(const JSONValue& value) :
         type_(0)
@@ -166,6 +168,11 @@ public:
     JSONValueType GetValueType() const;
     /// Return number type.
     JSONNumberType GetNumberType() const;
+    /// Return value type's name.
+    String GetValueTypeName() const;
+    /// Return number type's name.
+    String GetNumberTypeName() const;
+
     /// Check is null.
     bool IsNull() const { return GetValueType() == JSON_NULL; }
     /// Check is boolean.
@@ -192,7 +199,7 @@ public:
     /// Return string value.
     const String& GetString() const { return IsString() ? *stringValue_ : String::EMPTY;}
     /// Return C string value.
-    const char* GetCString() const { return IsString() ? stringValue_->CString() : 0;}
+    const char* GetCString() const { return IsString() ? stringValue_->CString() : nullptr;}
     /// Return JSON array value.
     const JSONArray& GetArray() const { return IsArray() ? *arrayValue_ : emptyArray; }
     /// Return JSON object value.
@@ -213,7 +220,7 @@ public:
     void Erase(unsigned pos, unsigned length = 1);
     /// Resize array.
     void Resize(unsigned newSize);
-    /// Return size of array.
+    /// Return size of array or number of keys in object.
     unsigned Size() const;
 
     // JSON object functions
@@ -245,19 +252,19 @@ public:
     void SetType(JSONValueType valueType, JSONNumberType numberType = JSONNT_NAN);
 
     /// Set variant, context must provide for resource ref.
-    void SetVariant(const Variant& variant, Context* context = 0);
+    void SetVariant(const Variant& variant, Context* context = nullptr);
     /// Return a variant.
     Variant GetVariant() const;
     /// Set variant value, context must provide for resource ref.
-    void SetVariantValue(const Variant& variant, Context* context = 0);
+    void SetVariantValue(const Variant& variant, Context* context = nullptr);
     /// Return a variant with type.
     Variant GetVariantValue(VariantType type) const;
     /// Set variant map, context must provide for resource ref.
-    void SetVariantMap(const VariantMap& variantMap, Context* context = 0);
+    void SetVariantMap(const VariantMap& variantMap, Context* context = nullptr);
     /// Return a variant map.
     VariantMap GetVariantMap() const;
     /// Set variant vector, context must provide for resource ref.
-    void SetVariantVector(const VariantVector& variantVector, Context* context = 0);
+    void SetVariantVector(const VariantVector& variantVector, Context* context = nullptr);
     /// Return a variant vector.
     VariantVector GetVariantVector() const;
 
@@ -267,6 +274,19 @@ public:
     static const JSONArray emptyArray;
     /// Empty JSON object.
     static const JSONObject emptyObject;
+
+    /// Return name corresponding to a value type.
+    static String GetValueTypeName(JSONValueType type);
+    /// Return name corresponding to a number type.
+    static String GetNumberTypeName(JSONNumberType type);
+    /// Return a value type from name; null if unrecognized.
+    static JSONValueType GetValueTypeFromName(const String& typeName);
+    /// Return a value type from name; null if unrecognized.
+    static JSONValueType GetValueTypeFromName(const char* typeName);
+    /// Return a number type from name; NaN if unrecognized.
+    static JSONNumberType GetNumberTypeFromName(const String& typeName);
+    /// Return a value type from name; NaN if unrecognized.
+    static JSONNumberType GetNumberTypeFromName(const char* typeName);
 
 private:
     /// type.

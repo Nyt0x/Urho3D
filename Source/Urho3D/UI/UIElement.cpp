@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -44,7 +44,8 @@ const char* horizontalAlignments[] =
     "Left",
     "Center",
     "Right",
-    0
+    "Custom",
+    nullptr
 };
 
 const char* verticalAlignments[] =
@@ -52,7 +53,8 @@ const char* verticalAlignments[] =
     "Top",
     "Center",
     "Bottom",
-    0
+    "Custom",
+    nullptr
 };
 
 static const char* focusModes[] =
@@ -61,7 +63,7 @@ static const char* focusModes[] =
     "ResetFocus",
     "Focusable",
     "FocusableDefocusable",
-    0
+    nullptr
 };
 
 static const char* dragDropModes[] =
@@ -70,7 +72,7 @@ static const char* dragDropModes[] =
     "Source",
     "Target",
     "SourceAndTarget",
-    0
+    nullptr
 };
 
 static const char* layoutModes[] =
@@ -78,7 +80,7 @@ static const char* layoutModes[] =
     "Free",
     "Horizontal",
     "Vertical",
-    0
+    nullptr
 };
 
 extern const char* UI_CATEGORY;
@@ -92,47 +94,7 @@ XPathQuery UIElement::styleXPathQuery_("/elements/element[@type=$typeName]", "ty
 
 UIElement::UIElement(Context* context) :
     Animatable(context),
-    parent_(0),
-    clipBorder_(IntRect::ZERO),
-    priority_(0),
-    bringToFront_(false),
-    bringToBack_(true),
-    clipChildren_(false),
-    sortChildren_(true),
-    useDerivedOpacity_(true),
-    editable_(true),
-    selected_(false),
-    visible_(true),
-    hovering_(false),
-    internal_(false),
-    focusMode_(FM_NOTFOCUSABLE),
-    dragDropMode_(DD_DISABLED),
-    layoutMode_(LM_FREE),
-    layoutSpacing_(0),
-    layoutBorder_(IntRect::ZERO),
-    layoutFlexScale_(Vector2::ONE),
-    resizeNestingLevel_(0),
-    layoutNestingLevel_(0),
-    layoutElementMaxSize_(0),
-    indent_(0),
-    indentSpacing_(16),
-    position_(IntVector2::ZERO),
-    positionDirty_(true),
-    dragButtonCombo_(0),
-    dragButtonCount_(0),
-    size_(IntVector2::ZERO),
-    minSize_(IntVector2::ZERO),
-    maxSize_(M_MAX_INT, M_MAX_INT),
-    childOffset_(IntVector2::ZERO),
-    horizontalAlignment_(HA_LEFT),
-    verticalAlignment_(VA_TOP),
-    opacity_(1.0f),
-    opacityDirty_(true),
-    derivedColorDirty_(true),
-    sortOrderDirty_(false),
-    colorGradient_(false),
-    traversalMode_(TM_BREADTH_FIRST),
-    elementEventSender_(false)
+    pivot_(std::numeric_limits<float>::max(), std::numeric_limits<float>::max())
 {
     SetEnabled(false);
 }
@@ -157,17 +119,23 @@ void UIElement::RegisterObject(Context* context)
     URHO3D_ACCESSOR_ATTRIBUTE("Min Size", GetMinSize, SetMinSize, IntVector2, IntVector2::ZERO, AM_FILE);
     URHO3D_ACCESSOR_ATTRIBUTE("Max Size", GetMaxSize, SetMaxSize, IntVector2, IntVector2(M_MAX_INT, M_MAX_INT), AM_FILE);
     URHO3D_ENUM_ACCESSOR_ATTRIBUTE("Horiz Alignment", GetHorizontalAlignment, SetHorizontalAlignment, HorizontalAlignment,
-        horizontalAlignments, HA_LEFT, AM_FILE);
+        horizontalAlignments, HA_LEFT, AM_FILEREADONLY);
     URHO3D_ENUM_ACCESSOR_ATTRIBUTE("Vert Alignment", GetVerticalAlignment, SetVerticalAlignment, VerticalAlignment, verticalAlignments,
-        VA_TOP, AM_FILE);
+        VA_TOP, AM_FILEREADONLY);
+    URHO3D_ACCESSOR_ATTRIBUTE("Min Anchor", GetMinAnchor, SetMinAnchor, Vector2, Vector2::ZERO, AM_FILE);
+    URHO3D_ACCESSOR_ATTRIBUTE("Max Anchor", GetMaxAnchor, SetMaxAnchor, Vector2, Vector2::ZERO, AM_FILE);
+    URHO3D_ACCESSOR_ATTRIBUTE("Min Offset", GetMinOffset, SetMinOffset, IntVector2, IntVector2::ZERO, AM_FILE);
+    URHO3D_ACCESSOR_ATTRIBUTE("Max Offset", GetMaxOffset, SetMaxOffset, IntVector2, IntVector2::ZERO, AM_FILE);
+    URHO3D_ACCESSOR_ATTRIBUTE("Pivot", GetPivot, SetPivot, Vector2, Vector2(std::numeric_limits<float>::max(), std::numeric_limits<float>::max()), AM_FILE);
+    URHO3D_ACCESSOR_ATTRIBUTE("Enable Anchor", GetEnableAnchor, SetEnableAnchor, bool, false, AM_FILE);
     URHO3D_ACCESSOR_ATTRIBUTE("Clip Border", GetClipBorder, SetClipBorder, IntRect, IntRect::ZERO, AM_FILE);
     URHO3D_ACCESSOR_ATTRIBUTE("Priority", GetPriority, SetPriority, int, 0, AM_FILE);
     URHO3D_ACCESSOR_ATTRIBUTE("Opacity", GetOpacity, SetOpacity, float, 1.0f, AM_FILE);
     URHO3D_ACCESSOR_ATTRIBUTE("Color", GetColorAttr, SetColor, Color, Color::WHITE, AM_FILE);
-    URHO3D_ATTRIBUTE("Top Left Color", Color, color_[0], Color::WHITE, AM_FILE);
-    URHO3D_ATTRIBUTE("Top Right Color", Color, color_[1], Color::WHITE, AM_FILE);
-    URHO3D_ATTRIBUTE("Bottom Left Color", Color, color_[2], Color::WHITE, AM_FILE);
-    URHO3D_ATTRIBUTE("Bottom Right Color", Color, color_[3], Color::WHITE, AM_FILE);
+    URHO3D_ATTRIBUTE("Top Left Color", Color, colors_[0], Color::WHITE, AM_FILE);
+    URHO3D_ATTRIBUTE("Top Right Color", Color, colors_[1], Color::WHITE, AM_FILE);
+    URHO3D_ATTRIBUTE("Bottom Left Color", Color, colors_[2], Color::WHITE, AM_FILE);
+    URHO3D_ATTRIBUTE("Bottom Right Color", Color, colors_[3], Color::WHITE, AM_FILE);
     URHO3D_ACCESSOR_ATTRIBUTE("Is Enabled", IsEnabled, SetEnabled, bool, false, AM_FILE);
     URHO3D_ACCESSOR_ATTRIBUTE("Is Editable", IsEditable, SetEditable, bool, true, AM_FILE);
     URHO3D_ACCESSOR_ATTRIBUTE("Is Selected", IsSelected, SetSelected, bool, false, AM_FILE);
@@ -195,17 +163,17 @@ void UIElement::ApplyAttributes()
 
     for (unsigned i = 1; i < MAX_UIELEMENT_CORNERS; ++i)
     {
-        if (color_[i] != color_[0])
+        if (colors_[i] != colors_[0])
             colorGradient_ = true;
     }
 }
 
-bool UIElement::LoadXML(const XMLElement& source, bool setInstanceDefault)
+bool UIElement::LoadXML(const XMLElement& source)
 {
-    return LoadXML(source, 0, setInstanceDefault);
+    return LoadXML(source, nullptr);
 }
 
-bool UIElement::LoadXML(const XMLElement& source, XMLFile* styleFile, bool setInstanceDefault)
+bool UIElement::LoadXML(const XMLElement& source, XMLFile* styleFile)
 {
     // Get style override if defined
     String styleName = source.GetAttribute("style");
@@ -238,7 +206,7 @@ bool UIElement::LoadXML(const XMLElement& source, XMLFile* styleFile, bool setIn
     DisableLayoutUpdate();
 
     // Then load rest of the attributes from the source
-    if (!Animatable::LoadXML(source, setInstanceDefault))
+    if (!Animatable::LoadXML(source))
         return false;
 
     unsigned nextInternalChild = 0;
@@ -252,7 +220,7 @@ bool UIElement::LoadXML(const XMLElement& source, XMLFile* styleFile, bool setIn
         if (typeName.Empty())
             typeName = "UIElement";
         unsigned index = childElem.HasAttribute("index") ? childElem.GetUInt("index") : M_MAX_UNSIGNED;
-        UIElement* child = 0;
+        UIElement* child = nullptr;
 
         if (!internalElem)
             child = CreateChild(typeName, String::EMPTY, index);
@@ -276,7 +244,7 @@ bool UIElement::LoadXML(const XMLElement& source, XMLFile* styleFile, bool setIn
         {
             if (!styleFile)
                 styleFile = GetDefaultStyle();
-            if (!child->LoadXML(childElem, styleFile, setInstanceDefault))
+            if (!child->LoadXML(childElem, styleFile))
                 return false;
         }
 
@@ -291,13 +259,13 @@ bool UIElement::LoadXML(const XMLElement& source, XMLFile* styleFile, bool setIn
     return true;
 }
 
-bool UIElement::LoadChildXML(const XMLElement& childElem, XMLFile* styleFile, bool setInstanceDefault)
+UIElement* UIElement::LoadChildXML(const XMLElement& childElem, XMLFile* styleFile)
 {
     bool internalElem = childElem.GetBool("internal");
     if (internalElem)
     {
         URHO3D_LOGERROR("Loading internal child element is not supported");
-        return false;
+        return nullptr;
     }
 
     String typeName = childElem.GetAttribute("type");
@@ -310,11 +278,14 @@ bool UIElement::LoadChildXML(const XMLElement& childElem, XMLFile* styleFile, bo
     {
         if (!styleFile)
             styleFile = GetDefaultStyle();
-        if (!child->LoadXML(childElem, styleFile, setInstanceDefault))
-            return false;
+        if (!child->LoadXML(childElem, styleFile))
+        {
+            RemoveChild(child, index);
+            return nullptr;
+        }
     }
 
-    return true;
+    return child;
 }
 
 bool UIElement::SaveXML(XMLElement& dest) const
@@ -377,7 +348,7 @@ void UIElement::GetBatches(PODVector<UIBatch>& batches, PODVector<float>& vertex
 
 void UIElement::GetDebugDrawBatches(PODVector<UIBatch>& batches, PODVector<float>& vertexData, const IntRect& currentScissor)
 {
-    UIBatch batch(this, BLEND_ALPHA, currentScissor, 0, &vertexData);
+    UIBatch batch(this, BLEND_ALPHA, currentScissor, nullptr, &vertexData);
 
     int horizontalThickness = 1;
     int verticalThickness = 1;
@@ -432,34 +403,10 @@ const IntVector2& UIElement::GetScreenPosition() const
         {
             const IntVector2& parentScreenPos = parent->GetScreenPosition();
 
-            switch (horizontalAlignment_)
-            {
-            case HA_LEFT:
-                pos.x_ += parentScreenPos.x_;
-                break;
-
-            case HA_CENTER:
-                pos.x_ += parentScreenPos.x_ + parent_->size_.x_ / 2 - size_.x_ / 2;
-                break;
-
-            case HA_RIGHT:
-                pos.x_ += parentScreenPos.x_ + parent_->size_.x_ - size_.x_;
-                break;
-            }
-            switch (verticalAlignment_)
-            {
-            case VA_TOP:
-                pos.y_ += parentScreenPos.y_;
-                break;
-
-            case VA_CENTER:
-                pos.y_ += parentScreenPos.y_ + parent_->size_.y_ / 2 - size_.y_ / 2;
-                break;
-
-            case VA_BOTTOM:
-                pos.y_ += parentScreenPos.y_ + parent_->size_.y_ - size_.y_;
-                break;
-            }
+            pos.x_ += parentScreenPos.x_ + (int)Lerp(0.0f, (float)parent->size_.x_, anchorMin_.x_);
+            pos.y_ += parentScreenPos.y_ + (int)Lerp(0.0f, (float)parent->size_.y_, anchorMin_.y_);
+            pos.x_ -= (int)(size_.x_ * pivot_.x_);
+            pos.y_ -= (int)(size_.y_ * pivot_.y_);
 
             pos += parent_->childOffset_;
         }
@@ -488,15 +435,15 @@ void UIElement::OnDragMove(const IntVector2& position, const IntVector2& screenP
 {
 }
 
-void UIElement::OnDragEnd(const IntVector2& position, const IntVector2& screenPosition, int dragButtons, int buttons,
-    Cursor* cursor)
+void UIElement::OnDragEnd(const IntVector2& position, const IntVector2& screenPosition, int /*dragButtons*/, int /*releaseButton*/,
+    Cursor* /*cursor*/)
 {
     dragButtonCombo_ = 0;
     dragButtonCount_ = 0;
 }
 
-void UIElement::OnDragCancel(const IntVector2& position, const IntVector2& screenPosition, int dragButtons, int buttons,
-    Cursor* cursor)
+void UIElement::OnDragCancel(const IntVector2& position, const IntVector2& screenPosition, int /*dragButtons*/, int /*cancelButton*/,
+    Cursor* /*cursor*/)
 {
     dragButtonCombo_ = 0;
     dragButtonCount_ = 0;
@@ -580,15 +527,15 @@ void UIElement::SetPosition(const IntVector2& position)
     if (position != position_)
     {
         position_ = position;
-        OnPositionSet();
+        OnPositionSet(position);
         MarkDirty();
 
         using namespace Positioned;
 
         VariantMap& eventData = GetEventDataMap();
         eventData[P_ELEMENT] = this;
-        eventData[P_X] = position_.x_;
-        eventData[P_Y] = position_.y_;
+        eventData[P_X] = position.x_;
+        eventData[P_Y] = position.y_;
         SendEvent(E_POSITIONED, eventData);
     }
 }
@@ -602,6 +549,7 @@ void UIElement::SetSize(const IntVector2& size)
 {
     ++resizeNestingLevel_;
 
+    IntVector2 oldSize = size_;
     IntVector2 validatedSize;
     IntVector2 effectiveMinSize = GetEffectiveMinSize();
     validatedSize.x_ = Clamp(size.x_, effectiveMinSize.x_, maxSize_.x_);
@@ -617,8 +565,9 @@ void UIElement::SetSize(const IntVector2& size)
             if (parent_)
                 parent_->UpdateLayout();
 
+            IntVector2 delta = size_ - oldSize;
             MarkDirty();
-            OnResize();
+            OnResize(size_, delta);
             UpdateLayout();
 
             using namespace Resized;
@@ -627,6 +576,8 @@ void UIElement::SetSize(const IntVector2& size)
             eventData[P_ELEMENT] = this;
             eventData[P_WIDTH] = size_.x_;
             eventData[P_HEIGHT] = size_.y_;
+            eventData[P_DX] = delta.x_;
+            eventData[P_DY] = delta.y_;
             SendEvent(E_RESIZED, eventData);
         }
     }
@@ -730,9 +681,27 @@ void UIElement::SetHorizontalAlignment(HorizontalAlignment align)
         align = HA_LEFT;
     }
 
-    if (horizontalAlignment_ != align)
+    Vector2 min = anchorMin_;
+    Vector2 max = anchorMax_;
+    float pivot = pivot_.x_;
+    float anchorSize = max.x_ - min.x_;
+
+    if (align == HA_CENTER)
+        min.x_ = pivot = 0.5f;
+    else if (align == HA_LEFT)
+        min.x_ = pivot = 0.0f;
+    else if (align == HA_RIGHT)
+        min.x_ = pivot = 1.0f;
+
+    max.x_ = enableAnchor_ ? (min.x_ + anchorSize) : min.x_;
+
+    if (min.x_ != anchorMin_.x_ || max.x_ != anchorMax_.x_ || pivot != pivot_.x_)
     {
-        horizontalAlignment_ = align;
+        anchorMin_.x_ = min.x_;
+        anchorMax_.x_ = max.x_;
+        pivot_.x_ = pivot;
+        if (enableAnchor_)
+            UpdateAnchoring();
         MarkDirty();
     }
 }
@@ -745,11 +714,101 @@ void UIElement::SetVerticalAlignment(VerticalAlignment align)
         align = VA_TOP;
     }
 
-    if (verticalAlignment_ != align)
+    Vector2 min = anchorMin_;
+    Vector2 max = anchorMax_;
+    float pivot = pivot_.y_;
+    float anchorSize = max.y_ - min.y_;
+
+    if (align == VA_CENTER)
+        min.y_ = pivot = 0.5f;
+    else if (align == VA_TOP)
+        min.y_ = pivot = 0.0f;
+    else if (align == VA_BOTTOM)
+        min.y_ = pivot = 1.0f;
+
+    max.y_ = enableAnchor_ ? (min.y_ + anchorSize) : min.y_;
+
+    if (min.y_ != anchorMin_.y_ || max.y_ != anchorMax_.y_ || pivot != pivot_.y_)
     {
-        verticalAlignment_ = align;
+        anchorMin_.y_ = min.y_;
+        anchorMax_.y_ = max.y_;
+        pivot_.y_ = pivot;
+        if (enableAnchor_)
+            UpdateAnchoring();
         MarkDirty();
     }
+}
+
+void UIElement::SetEnableAnchor(bool enable)
+{
+    enableAnchor_ = enable;
+    if (enableAnchor_)
+        UpdateAnchoring();
+}
+
+void UIElement::SetMinOffset(const IntVector2& offset)
+{
+    if (offset != minOffset_)
+    {
+        minOffset_ = offset;
+        if (enableAnchor_)
+            UpdateAnchoring();
+    }
+}
+
+void UIElement::SetMaxOffset(const IntVector2& offset)
+{
+    if (offset != maxOffset_)
+    {
+        maxOffset_ = offset;
+        if (enableAnchor_)
+            UpdateAnchoring();
+    }
+}
+
+void UIElement::SetMinAnchor(const Vector2& anchor)
+{
+    if (anchor != anchorMin_)
+    {
+        anchorMin_ = anchor;
+        if (enableAnchor_)
+            UpdateAnchoring();
+    }
+}
+
+void UIElement::SetMinAnchor(float x, float y)
+{
+    SetMinAnchor(Vector2(x, y));
+}
+
+void UIElement::SetMaxAnchor(const Vector2& anchor)
+{
+    if (anchor != anchorMax_)
+    {
+        anchorMax_ = anchor;
+        if (enableAnchor_)
+            UpdateAnchoring();
+    }
+}
+
+void UIElement::SetMaxAnchor(float x, float y)
+{
+    SetMaxAnchor(Vector2(x, y));
+}
+
+void UIElement::SetPivot(const Vector2& pivot)
+{
+    if (pivot != pivot_)
+    {
+        pivotSet_ = true;
+        pivot_ = pivot;
+        MarkDirty();
+    }
+}
+
+void UIElement::SetPivot(float x, float y)
+{
+    SetPivot(Vector2(x, y));
 }
 
 void UIElement::SetClipBorder(const IntRect& rect)
@@ -762,21 +821,21 @@ void UIElement::SetClipBorder(const IntRect& rect)
 
 void UIElement::SetColor(const Color& color)
 {
-    for (unsigned i = 0; i < MAX_UIELEMENT_CORNERS; ++i)
-        color_[i] = color;
+    for (auto& cornerColor : colors_)
+        cornerColor = color;
     colorGradient_ = false;
     derivedColorDirty_ = true;
 }
 
 void UIElement::SetColor(Corner corner, const Color& color)
 {
-    color_[corner] = color;
+    colors_[corner] = color;
     colorGradient_ = false;
     derivedColorDirty_ = true;
 
     for (unsigned i = 0; i < MAX_UIELEMENT_CORNERS; ++i)
     {
-        if (i != corner && color_[i] != color_[corner])
+        if (i != corner && colors_[i] != colors_[corner])
             colorGradient_ = true;
     }
 }
@@ -785,7 +844,7 @@ void UIElement::SetPriority(int priority)
 {
     if (priority_ == priority)
         return;
-    
+
     priority_ = priority;
     if (parent_)
         parent_->sortOrderDirty_ = true;
@@ -873,7 +932,7 @@ void UIElement::SetFocus(bool enable)
     if (focusMode_ < FM_FOCUSABLE || !IsVisibleEffective())
         enable = false;
 
-    UI* ui = GetSubsystem<UI>();
+    auto* ui = GetSubsystem<UI>();
     // Can be null at exit time; no-op in that case
     if (!ui)
         return;
@@ -886,7 +945,7 @@ void UIElement::SetFocus(bool enable)
     else
     {
         if (ui->GetFocusElement() == this)
-            ui->SetFocusElement(0);
+            ui->SetFocusElement(nullptr);
     }
 }
 
@@ -897,7 +956,7 @@ void UIElement::SetSelected(bool enable)
 
 void UIElement::SetVisible(bool enable)
 {
-    UI* ui = GetSubsystem<UI>();
+    auto* ui = GetSubsystem<UI>();
     // Can be null at exit time; no-op in that case
     if (!ui)
         return;
@@ -966,7 +1025,10 @@ bool UIElement::SetStyle(const XMLElement& element)
     appliedStyle_ = element.GetAttribute("type");
 
     // Consider style attribute values as instance-level attribute default values
-    return LoadXML(element, true);
+    SetInstanceDefault(true);
+    bool success = LoadXML(element);
+    SetInstanceDefault(false);
+    return success;
 }
 
 bool UIElement::SetStyleAuto(XMLFile* file)
@@ -1032,7 +1094,7 @@ void UIElement::SetIndentSpacing(int indentSpacing)
 
 void UIElement::UpdateLayout()
 {
-    if (layoutMode_ == LM_FREE || layoutNestingLevel_)
+    if (layoutNestingLevel_)
         return;
 
     // Prevent further updates while this update happens
@@ -1055,7 +1117,7 @@ void UIElement::UpdateLayout()
             if (!children_[i]->IsVisible())
                 continue;
             positions.Push(baseIndentWidth);
-            unsigned indent = (unsigned)children_[i]->GetIndentWidth();
+            auto indent = (unsigned)children_[i]->GetIndentWidth();
             sizes.Push(children_[i]->GetWidth() + indent);
             minSizes.Push(children_[i]->GetEffectiveMinSize().x_ + indent);
             maxSizes.Push(children_[i]->GetMaxWidth() + indent);
@@ -1122,6 +1184,14 @@ void UIElement::UpdateLayout()
             children_[i]->SetPosition(GetLayoutChildPosition(children_[i]).x_ + baseIndentWidth, positions[j]);
             children_[i]->SetSize(width - layoutBorder_.left_ - layoutBorder_.right_, sizes[j]);
             ++j;
+        }
+    }
+    else
+    {
+        for (unsigned i = 0; i < children_.Size(); ++i)
+        {
+            if (children_[i]->GetEnableAnchor())
+                children_[i]->UpdateAnchoring();
         }
     }
 
@@ -1205,7 +1275,7 @@ UIElement* UIElement::CreateChild(StringHash type, const String& name, unsigned 
     if (!newElement)
     {
         URHO3D_LOGERROR("Could not create unknown UI element type " + type.ToString());
-        return 0;
+        return nullptr;
     }
 
     if (!name.Empty())
@@ -1277,7 +1347,7 @@ void UIElement::RemoveChild(UIElement* element, unsigned index)
         if (children_[i] == element)
         {
             // Send change event if not already being destroyed
-            UIElement* sender = Refs() > 0 ? GetElementEventSender() : 0;
+            UIElement* sender = Refs() > 0 ? GetElementEventSender() : nullptr;
             if (sender)
             {
                 using namespace ElementRemoved;
@@ -1304,7 +1374,7 @@ void UIElement::RemoveChildAtIndex(unsigned index)
         return;
 
     // Send change event if not already being destroyed
-    UIElement* sender = Refs() > 0 ? GetElementEventSender() : 0;
+    UIElement* sender = Refs() > 0 ? GetElementEventSender() : nullptr;
     if (sender)
     {
         using namespace ElementRemoved;
@@ -1325,7 +1395,7 @@ void UIElement::RemoveChildAtIndex(unsigned index)
 void UIElement::RemoveAllChildren()
 {
     UIElement* root = GetRoot();
-    UIElement* sender = Refs() > 0 ? GetElementEventSender() : 0;
+    UIElement* sender = Refs() > 0 ? GetElementEventSender() : nullptr;
 
     for (Vector<SharedPtr<UIElement> >::Iterator i = children_.Begin(); i < children_.End();)
     {
@@ -1422,6 +1492,30 @@ void UIElement::RemoveAllTags()
     tags_.Clear();
 }
 
+HorizontalAlignment UIElement::GetHorizontalAlignment() const
+{
+    if (anchorMin_.x_ == 0.0f && anchorMax_.x_ == 0.0f && (!pivotSet_ || pivot_.x_ == 0.0f))
+        return HA_LEFT;
+    else if (anchorMin_.x_ == 0.5f && anchorMax_.x_ == 0.5f && (!pivotSet_ || pivot_.x_ == 0.5f))
+        return HA_CENTER;
+    else if (anchorMin_.x_ == 1.0f && anchorMax_.x_ == 1.0f && (!pivotSet_ || pivot_.x_ == 1.0f))
+        return HA_RIGHT;
+
+    return HA_CUSTOM;
+}
+
+VerticalAlignment UIElement::GetVerticalAlignment() const
+{
+    if (anchorMin_.y_ == 0.0f && anchorMax_.y_ == 0.0f && (!pivotSet_ || pivot_.y_ == 0.0f))
+        return VA_TOP;
+    else if (anchorMin_.y_ == 0.5f && anchorMax_.y_ == 0.5f && (!pivotSet_ || pivot_.y_ == 0.5f))
+        return VA_CENTER;
+    else if (anchorMin_.y_ == 1.0f && anchorMax_.y_ == 1.0f && (!pivotSet_ || pivot_.y_ == 1.0f))
+        return VA_BOTTOM;
+
+    return VA_CUSTOM;
+}
+
 float UIElement::GetDerivedOpacity() const
 {
     if (!useDerivedOpacity_)
@@ -1446,22 +1540,34 @@ float UIElement::GetDerivedOpacity() const
 
 bool UIElement::HasFocus() const
 {
-    UI* ui = GetSubsystem<UI>();
+    auto* ui = GetSubsystem<UI>();
     return ui ? ui->GetFocusElement() == this : false;
+}
+
+bool UIElement::IsChildOf(UIElement* element) const
+{
+    UIElement* parent = parent_;
+    while (parent)
+    {
+        if (parent == element)
+            return true;
+        parent = parent->parent_;
+    }
+    return false;
 }
 
 bool UIElement::IsVisibleEffective() const
 {
     bool visible = visible_;
     const UIElement* element = parent_;
-    
+
     // Traverse the parent chain
     while (visible && element)
     {
         visible &= element->visible_;
         element = element->parent_;
     }
-    
+
     return visible;
 }
 
@@ -1481,7 +1587,7 @@ XMLFile* UIElement::GetDefaultStyle(bool recursiveUp) const
                 return element->defaultStyle_;
             element = element->parent_;
         }
-        return 0;
+        return nullptr;
     }
     else
         return defaultStyle_;
@@ -1517,7 +1623,7 @@ unsigned UIElement::GetNumChildren(bool recursive) const
 
 UIElement* UIElement::GetChild(unsigned index) const
 {
-    return index < children_.Size() ? children_[index] : (UIElement*)0;
+    return index < children_.Size() ? children_[index] : nullptr;
 }
 
 UIElement* UIElement::GetChild(const String& name, bool recursive) const
@@ -1535,7 +1641,7 @@ UIElement* UIElement::GetChild(const String& name, bool recursive) const
         }
     }
 
-    return 0;
+    return nullptr;
 }
 
 UIElement* UIElement::GetChild(const StringHash& key, const Variant& value, bool recursive) const
@@ -1554,14 +1660,14 @@ UIElement* UIElement::GetChild(const StringHash& key, const Variant& value, bool
         }
     }
 
-    return 0;
+    return nullptr;
 }
 
 UIElement* UIElement::GetRoot() const
 {
     UIElement* root = parent_;
     if (!root)
-        return 0;
+        return nullptr;
     while (root->GetParent())
         root = root->GetParent();
     return root;
@@ -1571,7 +1677,7 @@ const Color& UIElement::GetDerivedColor() const
 {
     if (derivedColorDirty_)
     {
-        derivedColor_ = color_[C_TOPLEFT];
+        derivedColor_ = colors_[C_TOPLEFT];
         derivedColor_.a_ *= GetDerivedOpacity();
         derivedColorDirty_ = false;
     }
@@ -1605,6 +1711,13 @@ void UIElement::GetChildrenWithTag(PODVector<UIElement*>& dest, const String& ta
     }
     else
         GetChildrenWithTagRecursive(dest, tag);
+}
+
+PODVector<UIElement*> UIElement::GetChildrenWithTag(const String& tag, bool recursive) const
+{
+    PODVector<UIElement*> dest;
+    GetChildrenWithTag(dest, tag, recursive);
+    return dest;
 }
 
 void UIElement::GetChildrenWithTagRecursive(PODVector<UIElement*>& dest, const String& tag) const
@@ -1649,16 +1762,16 @@ IntRect UIElement::GetCombinedScreenRect()
     {
         for (Vector<SharedPtr<UIElement> >::Iterator i = children_.Begin(); i != children_.End(); ++i)
         {
-            IntVector2 childPos = (*i)->GetScreenPosition();
-            const IntVector2& childSize = (*i)->GetSize();
-            if (childPos.x_ < combined.left_)
-                combined.left_ = childPos.x_;
-            if (childPos.y_ < combined.top_)
-                combined.top_ = childPos.y_;
-            if (childPos.x_ + childSize.x_ > combined.right_)
-                combined.right_ = childPos.x_ + childSize.x_;
-            if (childPos.y_ + childSize.y_ > combined.bottom_)
-                combined.bottom_ = childPos.y_ + childSize.y_;
+            IntRect childCombined((*i)->GetCombinedScreenRect());
+
+            if (childCombined.left_ < combined.left_)
+                combined.left_ = childCombined.left_;
+            if (childCombined.right_ > combined.right_)
+                combined.right_ = childCombined.right_;
+            if (childCombined.top_ < combined.top_)
+                combined.top_ = childCombined.top_;
+            if (childCombined.bottom_ > combined.bottom_)
+                combined.bottom_ = childCombined.bottom_;
         }
     }
 
@@ -1732,7 +1845,7 @@ void UIElement::GetBatchesWithOffset(IntVector2& offset, PODVector<UIBatch>& bat
 
 UIElement* UIElement::GetElementEventSender() const
 {
-    UIElement* element = const_cast<UIElement*>(this);
+    auto* element = const_cast<UIElement*>(this);
     if (elementEventSender_)
         return element;
 
@@ -1785,15 +1898,25 @@ Animatable* UIElement::FindAttributeAnimationTarget(const String& name, String& 
             if (names[i].Front() != '#')
             {
                 URHO3D_LOGERROR("Invalid name " + name);
-                return 0;
+                return nullptr;
             }
 
-            unsigned index = (unsigned)ToInt(names[i].Substring(1, names[i].Length() - 1));
-            element = element->GetChild(index);
+            String name = names[i].Substring(1, names[i].Length() - 1);
+            char s = name.Front();
+            if (s >= '0' && s <= '9')
+            {
+                unsigned index = ToUInt(name);
+                element = element->GetChild(index);
+            }
+            else
+            {
+                element = element->GetChild(name, true);
+            }
+
             if (!element)
             {
                 URHO3D_LOGERROR("Could not find element by name " + name);
-                return 0;
+                return nullptr;
             }
         }
 
@@ -1907,6 +2030,21 @@ bool UIElement::FilterImplicitAttributes(XMLElement& dest) const
     return true;
 }
 
+void UIElement::UpdateAnchoring()
+{
+    if (parent_ && enableAnchor_)
+    {
+        IntVector2 newSize;
+        newSize.x_ = (int)(parent_->size_.x_ * Clamp(anchorMax_.x_ - anchorMin_.x_, 0.0f, 1.0f)) + maxOffset_.x_ - minOffset_.x_;
+        newSize.y_ = (int)(parent_->size_.y_ * Clamp(anchorMax_.y_ - anchorMin_.y_, 0.0f, 1.0f)) + maxOffset_.y_ - minOffset_.y_;
+
+        if (position_ != minOffset_)
+            SetPosition(minOffset_);
+        if (size_ != newSize)
+            SetSize(newSize);
+    }
+}
+
 void UIElement::GetChildrenRecursive(PODVector<UIElement*>& dest) const
 {
     for (Vector<SharedPtr<UIElement> >::ConstIterator i = children_.Begin(); i != children_.End(); ++i)
@@ -1963,7 +2101,7 @@ void UIElement::CalculateLayout(PODVector<int>& positions, PODVector<int>& sizes
     // Initial pass
     for (unsigned i = 0; i < numChildren; ++i)
     {
-        int targetSize = (int)(targetChildSize * flexScales[i]);
+        auto targetSize = (int)(targetChildSize * flexScales[i]);
         if (remainder)
         {
             acc += add;
@@ -2076,7 +2214,7 @@ IntVector2 UIElement::GetLayoutChildPosition(UIElement* child)
 
 void UIElement::Detach()
 {
-    parent_ = 0;
+    parent_ = nullptr;
     MarkDirty();
 }
 
@@ -2095,6 +2233,12 @@ void UIElement::HandlePostUpdate(StringHash eventType, VariantMap& eventData)
     using namespace PostUpdate;
 
     UpdateAttributeAnimations(eventData[P_TIMESTEP].GetFloat());
+}
+
+void UIElement::SetRenderTexture(Texture2D* texture)
+{
+    if (auto* ui = GetSubsystem<UI>())
+        ui->SetElementRenderTexture(this, texture);
 }
 
 }

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -39,25 +39,25 @@ class URHO3D_API TextureCube : public Texture
 
 public:
     /// Construct.
-    TextureCube(Context* context);
+    explicit TextureCube(Context* context);
     /// Destruct.
-    virtual ~TextureCube();
+    ~TextureCube() override;
     /// Register object factory.
     static void RegisterObject(Context* context);
 
     /// Load resource from stream. May be called from a worker thread. Return true if successful.
-    virtual bool BeginLoad(Deserializer& source);
+    bool BeginLoad(Deserializer& source) override;
     /// Finish resource loading. Always called from the main thread. Return true if successful.
-    virtual bool EndLoad();
+    bool EndLoad() override;
     /// Mark the GPU resource destroyed on context destruction.
-    virtual void OnDeviceLost();
+    void OnDeviceLost() override;
     /// Recreate the GPU resource and restore data if applicable.
-    virtual void OnDeviceReset();
+    void OnDeviceReset() override;
     /// Release the texture.
-    virtual void Release();
+    void Release() override;
 
-    /// Set size, format and usage. Return true if successful.
-    bool SetSize(int size, unsigned format, TextureUsage usage = TEXTURE_STATIC);
+    /// Set size, format, usage and multisampling parameter for rendertargets. Note that cube textures always use autoresolve when multisampled due to lacking support (on all APIs) to multisample them in a shader. Return true if successful.
+    bool SetSize(int size, unsigned format, TextureUsage usage = TEXTURE_STATIC, int multiSample = 1);
     /// Set data either partially or fully on a face's mip level. Return true if successful.
     bool SetData(CubeMapFace face, unsigned level, int x, int y, int width, int height, const void* data);
     /// Set data of one face from a stream. Return true if successful.
@@ -67,13 +67,15 @@ public:
 
     /// Get data from a face's mip level. The destination buffer must be big enough. Return true if successful.
     bool GetData(CubeMapFace face, unsigned level, void* dest) const;
+    /// Get image data from a face's zero mip level. Only RGB and RGBA textures are supported.
+    SharedPtr<Image> GetImage(CubeMapFace face) const;
 
     /// Return render surface for one face.
     RenderSurface* GetRenderSurface(CubeMapFace face) const { return renderSurfaces_[face]; }
 
 protected:
     /// Create the GPU texture.
-    virtual bool Create();
+    bool Create() override;
 
 private:
     /// Handle render surface update event.
@@ -82,7 +84,7 @@ private:
     /// Render surfaces.
     SharedPtr<RenderSurface> renderSurfaces_[MAX_CUBEMAP_FACES];
     /// Memory use per face.
-    unsigned faceMemoryUse_[MAX_CUBEMAP_FACES];
+    unsigned faceMemoryUse_[MAX_CUBEMAP_FACES]{};
     /// Face image files acquired during BeginLoad.
     Vector<SharedPtr<Image> > loadImages_;
     /// Parameter file acquired during BeginLoad.

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -47,14 +47,14 @@ static const char* commandTypeNames[] =
     "lightvolumes",
     "renderui",
     "sendevent",
-    0
+    nullptr
 };
 
 static const char* sortModeNames[] =
 {
     "fronttoback",
     "backtofront",
-    0
+    nullptr
 };
 
 extern const char* blendModeNames[];
@@ -106,6 +106,11 @@ void RenderTargetInfo::Load(const XMLElement& element)
         size_.x_ = element.GetFloat("width");
     if (element.HasAttribute("height"))
         size_.y_ = element.GetFloat("height");
+
+    if (element.HasAttribute("multisample"))
+        multiSample_ = Clamp(element.GetInt("multisample"), 1, 16);
+    if (element.HasAttribute("autoresolve"))
+        autoResolve_ = element.GetBool("autoresolve");
 }
 
 void RenderPathCommand::Load(const XMLElement& element)
@@ -160,24 +165,11 @@ void RenderPathCommand::Load(const XMLElement& element)
     case CMD_QUAD:
         vertexShaderName_ = element.GetAttribute("vs");
         pixelShaderName_ = element.GetAttribute("ps");
-        vertexShaderDefines_ = element.GetAttribute("vsdefines");
-        pixelShaderDefines_ = element.GetAttribute("psdefines");
 
-        if (type_ == CMD_QUAD)
+        if (type_ == CMD_QUAD && element.HasAttribute("blend"))
         {
-            if (element.HasAttribute("blend"))
-            {
-                String blend = element.GetAttributeLower("blend");
-                blendMode_ = ((BlendMode)GetStringListIndex(blend.CString(), blendModeNames, BLEND_REPLACE));
-            }
-
-            XMLElement parameterElem = element.GetChild("parameter");
-            while (parameterElem)
-            {
-                String name = parameterElem.GetAttribute("name");
-                shaderParameters_[name] = Material::ParseShaderParameterValue(parameterElem.GetAttribute("value"));
-                parameterElem = parameterElem.GetNext("parameter");
-            }
+            String blend = element.GetAttributeLower("blend");
+            blendMode_ = ((BlendMode)GetStringListIndex(blend.CString(), blendModeNames, BLEND_REPLACE));
         }
         break;
 
@@ -213,6 +205,18 @@ void RenderPathCommand::Load(const XMLElement& element)
         outputElem = outputElem.GetNext("output");
     }
 
+    // Shader compile flags & parameters
+    vertexShaderDefines_ = element.GetAttribute("vsdefines");
+    pixelShaderDefines_ = element.GetAttribute("psdefines");
+    XMLElement parameterElem = element.GetChild("parameter");
+    while (parameterElem)
+    {
+        String name = parameterElem.GetAttribute("name");
+        shaderParameters_[name] = Material::ParseShaderParameterValue(parameterElem.GetAttribute("value"));
+        parameterElem = parameterElem.GetNext("parameter");
+    }
+
+    // Texture bindings
     XMLElement textureElem = element.GetChild("texture");
     while (textureElem)
     {
@@ -302,13 +306,9 @@ CubeMapFace RenderPathCommand::GetOutputFace(unsigned index) const
     return index < outputs_.Size() ? outputs_[index].second_ : FACE_POSITIVE_X;
 }
 
-RenderPath::RenderPath()
-{
-}
+RenderPath::RenderPath() = default;
 
-RenderPath::~RenderPath()
-{
-}
+RenderPath::~RenderPath() = default;
 
 SharedPtr<RenderPath> RenderPath::Clone()
 {
@@ -373,6 +373,40 @@ void RenderPath::SetEnabled(const String& tag, bool active)
         if (!commands_[i].tag_.Compare(tag, false))
             commands_[i].enabled_ = active;
     }
+}
+
+bool RenderPath::IsEnabled(const String& tag) const
+{
+    for (unsigned i = 0; i < renderTargets_.Size(); ++i)
+    {
+        if (!renderTargets_[i].tag_.Compare(tag, false) && renderTargets_[i].enabled_)
+            return true;
+    }
+
+    for (unsigned i = 0; i < commands_.Size(); ++i)
+    {
+        if (!commands_[i].tag_.Compare(tag, false) && commands_[i].enabled_)
+            return true;
+    }
+
+    return false;
+}
+
+bool RenderPath::IsAdded(const String& tag) const
+{
+    for (unsigned i = 0; i < renderTargets_.Size(); ++i)
+    {
+        if (!renderTargets_[i].tag_.Compare(tag, false))
+            return true;
+    }
+
+    for (unsigned i = 0; i < commands_.Size(); ++i)
+    {
+        if (!commands_[i].tag_.Compare(tag, false))
+            return true;
+    }
+
+    return false;
 }
 
 void RenderPath::ToggleEnabled(const String& tag)

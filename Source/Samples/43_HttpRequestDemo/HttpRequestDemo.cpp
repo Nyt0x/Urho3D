@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -57,7 +57,7 @@ void HttpRequestDemo::Start()
 
 void HttpRequestDemo::CreateUI()
 {
-    ResourceCache* cache = GetSubsystem<ResourceCache>();
+    auto* cache = GetSubsystem<ResourceCache>();
 
     // Construct new Text object
     text_ = new Text(context_);
@@ -82,7 +82,7 @@ void HttpRequestDemo::SubscribeToEvents()
 
 void HttpRequestDemo::HandleUpdate(StringHash eventType, VariantMap& eventData)
 {
-    Network* network = GetSubsystem<Network>();
+    auto* network = GetSubsystem<Network>();
 
     if (httpRequest_.Null())
         httpRequest_ = network->MakeHttpRequest("http://httpbin.org/ip");
@@ -91,10 +91,10 @@ void HttpRequestDemo::HandleUpdate(StringHash eventType, VariantMap& eventData)
         // Initializing HTTP request
         if (httpRequest_->GetState() == HTTP_INITIALIZING)
             return;
-        // An error has occured
+        // An error has occurred
         else if (httpRequest_->GetState() == HTTP_ERROR)
         {
-            text_->SetText("An error has occured.");
+            text_->SetText("An error has occurred.");
             UnsubscribeFromEvent("Update");
         }
         // Get message data

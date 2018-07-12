@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -66,6 +66,14 @@ public:
     XMLElement CreateChild(const String& name);
     /// Create a child element.
     XMLElement CreateChild(const char* name);
+    /// Return the first child element with name or create if does not exist.
+    XMLElement GetOrCreateChild(const String& name);
+    /// Return the first child element with name or create if does not exist.
+    XMLElement GetOrCreateChild(const char* name);
+    /// Append element. If asCopy is set to true then original element is copied and appended, otherwise specified element is appended.
+    bool AppendChild(XMLElement element, bool asCopy = false);
+    /// Remove element from its parent.
+    bool Remove();
     /// Remove a child element. Return true if successful.
     bool RemoveChild(const XMLElement& element);
     /// Remove a child element by name. Return true if successful.
@@ -82,11 +90,11 @@ public:
     bool RemoveAttribute(const char* name);
 
     /// Select an element/attribute using XPath query.
-    XMLElement SelectSingle(const String& query, pugi::xpath_variable_set* variables = 0) const;
+    XMLElement SelectSingle(const String& query, pugi::xpath_variable_set* variables = nullptr) const;
     /// Select an element/attribute using XPath query.
     XMLElement SelectSinglePrepared(const XPathQuery& query) const;
     /// Select elements/attributes using XPath query.
-    XPathResultSet Select(const String& query, pugi::xpath_variable_set* variables = 0) const;
+    XPathResultSet Select(const String& query, pugi::xpath_variable_set* variables = nullptr) const;
     /// Select elements/attributes using XPath query.
     XPathResultSet SelectPrepared(const XPathQuery& query) const;
 
@@ -120,10 +128,16 @@ public:
     bool SetUInt(const String& name, unsigned value);
     /// Set an integer attribute.
     bool SetInt(const String& name, int value);
+    /// Set an unsigned long long integer attribute.
+    bool SetUInt64(const String& name, unsigned long long value);
+    /// Set a long long integer attribute.
+    bool SetInt64(const String& name, long long value);
     /// Set an IntRect attribute.
     bool SetIntRect(const String& name, const IntRect& value);
     /// Set an IntVector2 attribute.
     bool SetIntVector2(const String& name, const IntVector2& value);
+    /// Set an IntVector3 attribute.
+    bool SetIntVector3(const String& name, const IntVector3& value);
     /// Set a Rect attribute.
     bool SetRect(const String& name, const Rect& value);
     /// Set a quaternion attribute.
@@ -164,7 +178,7 @@ public:
     /// Return whether refers to an element or an XPath node.
     bool NotNull() const;
     /// Return true if refers to an element or an XPath node.
-    operator bool() const;
+    explicit operator bool() const;
     /// Return element name (or attribute name if it is an attribute only XPath query result).
     String GetName() const;
     /// Return whether has a child element.
@@ -223,10 +237,16 @@ public:
     unsigned GetUInt(const String& name) const;
     /// Return an integer attribute, or zero if missing.
     int GetInt(const String& name) const;
+    /// Return an unsigned long long integer attribute, or zero if missing.
+    unsigned long long GetUInt64(const String& name) const;
+    /// Return a long long integer attribute, or zero if missing.
+    long long GetInt64(const String& name) const;
     /// Return an IntRect attribute, or default if missing.
     IntRect GetIntRect(const String& name) const;
     /// Return an IntVector2 attribute, or default if missing.
     IntVector2 GetIntVector2(const String& name) const;
+    /// Return an IntVector3 attribute, or default if missing.
+    IntVector3 GetIntVector3(const String& name) const;
     /// Return a Rect attribute, or default if missing.
     Rect GetRect(const String& name) const;
     /// Return a quaternion attribute, or default if missing.
@@ -337,7 +357,7 @@ public:
     /// Construct empty.
     XPathQuery();
     /// Construct XPath query object with query string and variable string. The variable string format is "name1:type1,name2:type2,..." where type is one of "Bool", "Float", "String", "ResultSet".
-    XPathQuery(const String& queryString, const String& variableString = String::EMPTY);
+    explicit XPathQuery(const String& queryString, const String& variableString = String::EMPTY);
     /// Destruct.
     ~XPathQuery();
     /// Bind query object with variable set.
@@ -357,31 +377,31 @@ public:
     /// Clear by removing all variables and XPath query object.
     void Clear();
     /// Evaluate XPath query and expecting a boolean return value.
-    bool EvaluateToBool(XMLElement element) const;
+    bool EvaluateToBool(const XMLElement& element) const;
     /// Evaluate XPath query and expecting a float return value.
-    float EvaluateToFloat(XMLElement element) const;
+    float EvaluateToFloat(const XMLElement& element) const;
     /// Evaluate XPath query and expecting a string return value.
-    String EvaluateToString(XMLElement element) const;
+    String EvaluateToString(const XMLElement& element) const;
     /// Evaluate XPath query and expecting an XPath query result set as return value.
     /// Note: The XPathResultSet return value must be stored in a lhs variable to ensure the underlying xpath_node_set* is still valid while performing XPathResultSet::FirstResult(), XPathResultSet::operator [], and XMLElement::NextResult().
-    XPathResultSet Evaluate(XMLElement element) const;
+    XPathResultSet Evaluate(const XMLElement& element) const;
 
     /// Return query string.
     String GetQuery() const { return queryString_; }
 
     /// Return pugixml xpath_query.
-    pugi::xpath_query* GetXPathQuery() const { return query_; }
+    pugi::xpath_query* GetXPathQuery() const { return query_.Get(); }
 
     /// Return pugixml xpath_variable_set.
-    pugi::xpath_variable_set* GetXPathVariableSet() const { return variables_; }
+    pugi::xpath_variable_set* GetXPathVariableSet() const { return variables_.Get(); }
 
 private:
     /// XPath query string.
     String queryString_;
     /// Pugixml xpath_query.
-    pugi::xpath_query* query_;
+    UniquePtr<pugi::xpath_query> query_;
     /// Pugixml xpath_variable_set.
-    pugi::xpath_variable_set* variables_;
+    UniquePtr<pugi::xpath_variable_set> variables_;
 };
 
 }

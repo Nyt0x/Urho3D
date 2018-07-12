@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -25,6 +25,10 @@
 #include "../Scene/Component.h"
 #include "../Urho2D/TileMapDefs2D.h"
 
+#ifdef GetObject
+#undef GetObject
+#endif
+
 namespace Urho3D
 {
 
@@ -43,14 +47,14 @@ class URHO3D_API TileMapLayer2D : public Component
 
 public:
     /// Construct.
-    TileMapLayer2D(Context* context);
+    explicit TileMapLayer2D(Context* context);
     /// Destruct.
-    ~TileMapLayer2D();
+    ~TileMapLayer2D() override;
     /// Register object factory.
     static void RegisterObject(Context* context);
 
     /// Add debug geometry to the debug renderer.
-    virtual void DrawDebugGeometry(DebugRenderer* debug, bool depthTest);
+    void DrawDebugGeometry(DebugRenderer* debug, bool depthTest) override;
 
     /// Initialize with tile map and tmx layer.
     void Initialize(TileMap2D* tileMap, const TmxLayer2D* tmxLayer);
@@ -108,17 +112,17 @@ private:
     /// Tile map.
     WeakPtr<TileMap2D> tileMap_;
     /// Tmx layer.
-    const TmxLayer2D* tmxLayer_;
+    const TmxLayer2D* tmxLayer_{};
     /// Tile layer.
-    const TmxTileLayer2D* tileLayer_;
+    const TmxTileLayer2D* tileLayer_{};
     /// Object group.
-    const TmxObjectGroup2D* objectGroup_;
+    const TmxObjectGroup2D* objectGroup_{};
     /// Image layer.
-    const TmxImageLayer2D* imageLayer_;
+    const TmxImageLayer2D* imageLayer_{};
     /// Draw order.
-    int drawOrder_;
+    int drawOrder_{};
     /// Visible.
-    bool visible_;
+    bool visible_{true};
     /// Tile node or image nodes.
     Vector<SharedPtr<Node> > nodes_;
 };

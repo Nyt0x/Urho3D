@@ -49,11 +49,7 @@ static void releaseReferencedNames( Reference *ref ) {
         return;
     }
 
-    if( ref->m_referencedName ) {
-        for( size_t i = 0; i < ref->m_numRefs; i++ ) {
-            delete ref->m_referencedName;
-        }
-    }
+    delete ref;
 }
 
 DDLNode::DDLNode( const std::string &type, const std::string &name, size_t idx, DDLNode *parent )
@@ -72,14 +68,17 @@ DDLNode::DDLNode( const std::string &type, const std::string &name, size_t idx, 
 }
 
 DDLNode::~DDLNode() {
-    releaseDataType<Property>( m_properties );
-    releaseDataType<Value>( m_value );
+    delete m_properties;
+    delete m_value;
     releaseReferencedNames( m_references );
 
     delete m_dtArrayList;
     m_dtArrayList = ddl_nullptr;
     if( s_allocatedNodes[ m_idx ] == this ) {
         s_allocatedNodes[ m_idx ] = ddl_nullptr;
+    }
+    for ( size_t i = 0; i<m_children.size(); i++ ){
+        delete m_children[ i ];
     }
 }
 
@@ -95,9 +94,8 @@ void DDLNode::attachParent( DDLNode *parent ) {
 }
 
 void DDLNode::detachParent() {
-    if( m_parent ) {
-        std::vector<DDLNode*>::iterator it;
-        it = std::find( m_parent->m_children.begin(), m_parent->m_children.end(), this );
+    if( ddl_nullptr != m_parent ) {
+        DDLNodeIt it = std::find( m_parent->m_children.begin(), m_parent->m_children.end(), this );
         if( m_parent->m_children.end() != it ) {
             m_parent->m_children.erase( it );
         }
@@ -121,7 +119,6 @@ const std::string &DDLNode::getType() const {
     return m_type;
 }
 
-
 void DDLNode::setName( const std::string &name ) {
     m_name = name;
 }
@@ -131,6 +128,8 @@ const std::string &DDLNode::getName() const {
 }
 
 void DDLNode::setProperties( Property *prop ) {
+    if(m_properties!=ddl_nullptr)
+        delete m_properties;
     m_properties = prop;
 }
 
@@ -143,6 +142,10 @@ bool DDLNode::hasProperty( const std::string &name ) {
     return ( ddl_nullptr != prop );
 }
 
+bool DDLNode::hasProperties() const {
+    return( ddl_nullptr != m_properties );
+}
+
 Property *DDLNode::findPropertyByName( const std::string &name ) {
     if( name.empty() ) {
         return ddl_nullptr;
@@ -151,9 +154,10 @@ Property *DDLNode::findPropertyByName( const std::string &name ) {
     if( ddl_nullptr == m_properties ) {
         return ddl_nullptr;
     }
+
     Property *current( m_properties );
     while( ddl_nullptr != current ) {
-        int res = strncmp( current->m_key->m_text.m_buffer, name.c_str(), name.size() );
+        int res = strncmp( current->m_key->m_buffer, name.c_str(), name.size() );
         if( 0 == res ) {
             return current;
         }
@@ -187,6 +191,10 @@ Reference *DDLNode::getReferences() const {
     return m_references;
 }
 
+void DDLNode::dump(IOStreamBase &/*stream*/) {
+    // Todo!    
+}
+
 DDLNode *DDLNode::create( const std::string &type, const std::string &name, DDLNode *parent ) {
     const size_t idx( s_allocatedNodes.size() );
     DDLNode *node = new DDLNode( type, name, idx, parent );
@@ -197,7 +205,7 @@ DDLNode *DDLNode::create( const std::string &type, const std::string &name, DDLN
 
 void DDLNode::releaseNodes() {
     if( s_allocatedNodes.size() > 0 ) {
-        for( DllNodeList::iterator it = s_allocatedNodes.begin(); it != s_allocatedNodes.end(); it++ ) {
+        for( DDLNodeIt it = s_allocatedNodes.begin(); it != s_allocatedNodes.end(); it++ ) {
             if( *it ) {
                 delete *it;
             }

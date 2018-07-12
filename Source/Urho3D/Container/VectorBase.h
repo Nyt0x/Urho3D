@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -38,7 +38,7 @@ template <class T> struct RandomAccessIterator
 {
     /// Construct.
     RandomAccessIterator() :
-        ptr_(0)
+        ptr_(nullptr)
     {
     }
 
@@ -139,13 +139,13 @@ template <class T> struct RandomAccessConstIterator
     }
 
     /// Construct with an object pointer.
-    explicit RandomAccessConstIterator(T* ptr) :
+    explicit RandomAccessConstIterator(const T* ptr) :
         ptr_(ptr)
     {
     }
 
     /// Construct from a non-const iterator.
-    RandomAccessConstIterator(const RandomAccessIterator<T>& rhs) :
+    RandomAccessConstIterator(const RandomAccessIterator<T>& rhs) :     // NOLINT(google-explicit-constructor)
         ptr_(rhs.ptr_)
     {
     }
@@ -235,8 +235,54 @@ template <class T> struct RandomAccessConstIterator
     bool operator >=(const RandomAccessConstIterator& rhs) const { return ptr_ >= rhs.ptr_; }
 
     /// Pointer.
-    T* ptr_;
+    const T* ptr_;
 };
+
+/// Returns an iterator pointing to the first element in the range [first, last) that is not less than value.
+template <class TRandomAccessIterator, class T>
+TRandomAccessIterator LowerBound(TRandomAccessIterator first, TRandomAccessIterator last, const T& value)
+{
+    unsigned count = last - first;
+
+    while (count > 0)
+    {
+        const unsigned step = count / 2;
+        const TRandomAccessIterator it = first + step;
+        if (*it < value)
+        {
+            first = it + 1;
+            count -= step + 1;
+        }
+        else
+        {
+            count = step;
+        }
+    }
+    return first;
+}
+
+/// Returns an iterator pointing to the first element in the range [first, last) that is greater than value.
+template <class TRandomAccessIterator, class T>
+TRandomAccessIterator UpperBound(TRandomAccessIterator first, TRandomAccessIterator last, const T& value)
+{
+    unsigned count = last - first;
+
+    while (count > 0)
+    {
+        const unsigned step = count / 2;
+        const TRandomAccessIterator it = first + step;
+        if (!(value < *it))
+        {
+            first = it + 1;
+            count -= step + 1;
+        }
+        else
+        {
+            count = step;
+        };
+    }
+    return first;
+}
 
 /// %Vector base class.
 /** Note that to prevent extra memory use due to vtable pointer, %VectorBase intentionally does not declare a virtual destructor
@@ -246,10 +292,10 @@ class URHO3D_API VectorBase
 {
 public:
     /// Construct.
-    VectorBase() :
+    VectorBase() noexcept :
         size_(0),
         capacity_(0),
-        buffer_(0)
+        buffer_(nullptr)
     {
     }
 

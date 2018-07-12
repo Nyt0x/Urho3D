@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -41,9 +41,7 @@ ConstraintMotor2D::ConstraintMotor2D(Context* context) :
 
 }
 
-ConstraintMotor2D::~ConstraintMotor2D()
-{
-}
+ConstraintMotor2D::~ConstraintMotor2D() = default;
 
 void ConstraintMotor2D::RegisterObject(Context* context)
 {
@@ -65,7 +63,11 @@ void ConstraintMotor2D::SetLinearOffset(const Vector2& linearOffset)
 
     linearOffset_ = linearOffset;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2MotorJoint*>(joint_)->SetLinearOffset(ToB2Vec2(linearOffset));
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -76,7 +78,11 @@ void ConstraintMotor2D::SetAngularOffset(float angularOffset)
 
     jointDef_.angularOffset = angularOffset;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2MotorJoint*>(joint_)->SetAngularOffset(angularOffset);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -87,7 +93,11 @@ void ConstraintMotor2D::SetMaxForce(float maxForce)
 
     jointDef_.maxForce = maxForce;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2MotorJoint*>(joint_)->SetMaxForce(maxForce);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -98,7 +108,11 @@ void ConstraintMotor2D::SetMaxTorque(float maxTorque)
 
     jointDef_.maxTorque = maxTorque;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2MotorJoint*>(joint_)->SetMaxTorque(maxTorque);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
@@ -109,19 +123,23 @@ void ConstraintMotor2D::SetCorrectionFactor(float correctionFactor)
 
     jointDef_.correctionFactor = correctionFactor;
 
-    RecreateJoint();
+    if (joint_)
+        static_cast<b2MotorJoint*>(joint_)->SetCorrectionFactor(correctionFactor);
+    else
+        RecreateJoint();
+
     MarkNetworkUpdate();
 }
 
 b2JointDef* ConstraintMotor2D::GetJointDef()
 {
     if (!ownerBody_ || !otherBody_)
-        return 0;
+        return nullptr;
 
     b2Body* bodyA = ownerBody_->GetBody();
     b2Body* bodyB = otherBody_->GetBody();
     if (!bodyA || !bodyB)
-        return 0;
+        return nullptr;
 
     jointDef_.Initialize(bodyA, bodyB);
     jointDef_.linearOffset = ToB2Vec2(linearOffset_);

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -87,9 +87,7 @@ ScrollView::ScrollView(Context* context) :
 
 }
 
-ScrollView::~ScrollView()
-{
-}
+ScrollView::~ScrollView() = default;
 
 void ScrollView::RegisterObject(Context* context)
 {
@@ -182,7 +180,7 @@ void ScrollView::ApplyAttributes()
     if (scrollPanel_->GetNumChildren())
         SetContentElement(scrollPanel_->GetChild(0));
 
-    OnResize();
+    OnResize(GetSize(), IntVector2::ZERO);
 
     // Reapply view position with proper content element and size
     SetViewPosition(viewPositionAttr_);
@@ -262,7 +260,7 @@ void ScrollView::OnKey(int key, int buttons, int qualifiers)
     }
 }
 
-void ScrollView::OnResize()
+void ScrollView::OnResize(const IntVector2& newSize, const IntVector2& delta)
 {
     UpdatePanelSize();
     UpdateViewSize();
@@ -297,7 +295,7 @@ void ScrollView::SetContentElement(UIElement* element)
         SubscribeToEvent(contentElement_, E_RESIZED, URHO3D_HANDLER(ScrollView, HandleElementResized));
     }
 
-    OnResize();
+    OnResize(GetSize(), IntVector2::ZERO);
 }
 
 void ScrollView::SetViewPosition(const IntVector2& position)
@@ -318,6 +316,18 @@ void ScrollView::SetScrollBarsVisible(bool horizontal, bool vertical)
     verticalScrollBar_->SetVisible(vertical);
 }
 
+void ScrollView::SetHorizontalScrollBarVisible(bool visible)
+{
+    scrollBarsAutoVisible_ = false;
+    horizontalScrollBar_->SetVisible(visible);
+}
+
+void ScrollView::SetVerticalScrollBarVisible(bool visible)
+{
+    scrollBarsAutoVisible_ = false;
+    verticalScrollBar_->SetVisible(visible);
+}
+
 void ScrollView::SetScrollBarsAutoVisible(bool enable)
 {
     if (enable != scrollBarsAutoVisible_)
@@ -325,7 +335,7 @@ void ScrollView::SetScrollBarsAutoVisible(bool enable)
         scrollBarsAutoVisible_ = enable;
         // Check whether scrollbars should be visible now
         if (enable)
-            OnResize();
+            OnResize(GetSize(), IntVector2::ZERO);
         else
         {
             horizontalScrollBar_->SetVisible(true);
@@ -343,6 +353,16 @@ void ScrollView::SetScrollStep(float step)
 void ScrollView::SetPageStep(float step)
 {
     pageStep_ = Max(step, 0.0f);
+}
+
+bool ScrollView::GetHorizontalScrollBarVisible() const
+{
+    return horizontalScrollBar_->IsVisible();
+}
+
+bool ScrollView::GetVerticalScrollBarVisible() const
+{
+    return verticalScrollBar_->IsVisible();
 }
 
 float ScrollView::GetScrollStep() const
@@ -519,13 +539,13 @@ void ScrollView::HandleScrollBarVisibleChanged(StringHash eventType, VariantMap&
 {
     // Need to recalculate panel size when scrollbar visibility changes
     if (!ignoreEvents_)
-        OnResize();
+        OnResize(GetSize(), IntVector2::ZERO);
 }
 
 void ScrollView::HandleElementResized(StringHash eventType, VariantMap& eventData)
 {
     if (!ignoreEvents_)
-        OnResize();
+        OnResize(GetSize(), IntVector2::ZERO);
 }
 
 void ScrollView::HandleTouchMove(StringHash eventType, VariantMap& eventData)
@@ -536,8 +556,8 @@ void ScrollView::HandleTouchMove(StringHash eventType, VariantMap& eventData)
     {
         scrollTouchDown_ = true;
         // Take new scrolling speed if it's faster than the current accumulated value
-        float dX = (float)-eventData[P_DX].GetInt();
-        float dY = (float)-eventData[P_DY].GetInt();
+        auto dX = (float)-eventData[P_DX].GetInt();
+        auto dY = (float)-eventData[P_DY].GetInt();
 
         if (Abs(dX) > Abs(touchScrollSpeed_.x_))
             touchScrollSpeed_.x_ = dX;

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -55,7 +55,7 @@
 #include <sys/utime.h>
 #else
 #include <dirent.h>
-#include <errno.h>
+#include <cerrno>
 #include <unistd.h>
 #include <utime.h>
 #include <sys/wait.h>
@@ -72,7 +72,7 @@ extern "C"
 const char* SDL_Android_GetFilesDir();
 char** SDL_Android_GetFileList(const char* path, int* count);
 void SDL_Android_FreeFileList(char*** array, int* count);
-#elif IOS
+#elif defined(IOS) || defined(TVOS)
 const char* SDL_IOS_GetResourceDir();
 const char* SDL_IOS_GetDocumentsDir();
 #endif
@@ -85,12 +85,15 @@ namespace Urho3D
 
 int DoSystemCommand(const String& commandLine, bool redirectToLog, Context* context)
 {
-#if !defined(NO_POPEN) && !defined(MINI_URHO)
+#if defined(TVOS) || defined(IOS)
+    return -1;
+#else
+#if !defined(__EMSCRIPTEN__) && !defined(MINI_URHO)
     if (!redirectToLog)
 #endif
         return system(commandLine.CString());
 
-#if !defined(NO_POPEN) && !defined(MINI_URHO)
+#if !defined(__EMSCRIPTEN__) && !defined(MINI_URHO)
     // Get a platform-agnostic temporary file name for stderr redirection
     String stderrFilename;
     String adjustedCommandLine(commandLine);
@@ -135,10 +138,14 @@ int DoSystemCommand(const String& commandLine, bool redirectToLog, Context* cont
 
     return exitCode;
 #endif
+#endif
 }
 
 int DoSystemRun(const String& fileName, const Vector<String>& arguments)
 {
+#ifdef TVOS
+    return -1;
+#else
     String fixedFileName = GetNativePath(fileName);
 
 #ifdef _WIN32
@@ -156,7 +163,7 @@ int DoSystemRun(const String& fileName, const Vector<String>& arguments)
     memset(&processInfo, 0, sizeof processInfo);
 
     WString commandLineW(commandLine);
-    if (!CreateProcessW(NULL, (wchar_t*)commandLineW.CString(), 0, 0, 0, CREATE_NO_WINDOW, 0, 0, &startupInfo, &processInfo))
+    if (!CreateProcessW(nullptr, (wchar_t*)commandLineW.CString(), nullptr, nullptr, 0, CREATE_NO_WINDOW, nullptr, nullptr, &startupInfo, &processInfo))
         return -1;
 
     WaitForSingleObject(processInfo.hProcess, INFINITE);
@@ -175,7 +182,7 @@ int DoSystemRun(const String& fileName, const Vector<String>& arguments)
         argPtrs.Push(fixedFileName.CString());
         for (unsigned i = 0; i < arguments.Size(); ++i)
             argPtrs.Push(arguments[i].CString());
-        argPtrs.Push(0);
+        argPtrs.Push(nullptr);
 
         execvp(argPtrs[0], (char**)&argPtrs[0]);
         return -1; // Return -1 if we could not spawn the process
@@ -189,6 +196,7 @@ int DoSystemRun(const String& fileName, const Vector<String>& arguments)
     else
         return -1;
 #endif
+#endif
 }
 
 /// Base class for async execution requests.
@@ -196,9 +204,8 @@ class AsyncExecRequest : public Thread
 {
 public:
     /// Construct.
-    AsyncExecRequest(unsigned& requestID) :
-        requestID_(requestID),
-        completed_(false)
+    explicit AsyncExecRequest(unsigned& requestID) :
+        requestID_(requestID)
     {
         // Increment ID for next request
         ++requestID;
@@ -217,11 +224,11 @@ public:
 
 protected:
     /// Request ID.
-    unsigned requestID_;
+    unsigned requestID_{};
     /// Exit code.
-    int exitCode_;
+    int exitCode_{};
     /// Completed flag.
-    volatile bool completed_;
+    volatile bool completed_{};
 };
 
 /// Async system command operation.
@@ -237,9 +244,9 @@ public:
     }
 
     /// The function to run in the thread.
-    virtual void ThreadFunction()
+    void ThreadFunction() override
     {
-        exitCode_ = DoSystemCommand(commandLine_, false, 0);
+        exitCode_ = DoSystemCommand(commandLine_, false, nullptr);
         completed_ = true;
     }
 
@@ -262,7 +269,7 @@ public:
     }
 
     /// The function to run in the thread.
-    virtual void ThreadFunction()
+    void ThreadFunction() override
     {
         exitCode_ = DoSystemRun(fileName_, arguments_);
         completed_ = true;
@@ -276,9 +283,7 @@ private:
 };
 
 FileSystem::FileSystem(Context* context) :
-    Object(context),
-    nextAsyncExecID_(1),
-    executeConsoleCommands_(false)
+    Object(context)
 {
     SubscribeToEvent(E_BEGINFRAME, URHO3D_HANDLER(FileSystem, HandleBeginFrame));
 
@@ -339,7 +344,7 @@ bool FileSystem::CreateDir(const String& pathName)
     }
 
 #ifdef _WIN32
-    bool success = (CreateDirectoryW(GetWideNativePath(RemoveTrailingSlash(pathName)).CString(), 0) == TRUE) ||
+    bool success = (CreateDirectoryW(GetWideNativePath(RemoveTrailingSlash(pathName)).CString(), nullptr) == TRUE) ||
         (GetLastError() == ERROR_ALREADY_EXISTS);
 #else
     bool success = mkdir(GetNativePath(RemoveTrailingSlash(pathName)).CString(), S_IRWXU) == 0 || errno == EEXIST;
@@ -393,7 +398,7 @@ unsigned FileSystem::SystemCommandAsync(const String& commandLine)
     if (allowedPaths_.Empty())
     {
         unsigned requestID = nextAsyncExecID_;
-        AsyncSystemCommand* cmd = new AsyncSystemCommand(nextAsyncExecID_, commandLine);
+        auto* cmd = new AsyncSystemCommand(nextAsyncExecID_, commandLine);
         asyncExecQueue_.Push(cmd);
         return requestID;
     }
@@ -414,7 +419,7 @@ unsigned FileSystem::SystemRunAsync(const String& fileName, const Vector<String>
     if (allowedPaths_.Empty())
     {
         unsigned requestID = nextAsyncExecID_;
-        AsyncSystemRun* cmd = new AsyncSystemRun(nextAsyncExecID_, fileName, arguments);
+        auto* cmd = new AsyncSystemRun(nextAsyncExecID_, fileName, arguments);
         asyncExecQueue_.Push(cmd);
         return requestID;
     }
@@ -440,8 +445,8 @@ bool FileSystem::SystemOpen(const String& fileName, const String& mode)
         }
 
 #ifdef _WIN32
-        bool success = (size_t)ShellExecuteW(0, !mode.Empty() ? WString(mode).CString() : 0,
-            GetWideNativePath(fileName).CString(), 0, 0, SW_SHOW) > 32;
+        bool success = (size_t)ShellExecuteW(nullptr, !mode.Empty() ? WString(mode).CString() : nullptr,
+            GetWideNativePath(fileName).CString(), nullptr, nullptr, SW_SHOW) > 32;
 #else
         Vector<String> arguments;
         arguments.Push(fileName);
@@ -577,7 +582,7 @@ unsigned FileSystem::GetLastModifiedTime(const String& fileName) const
     else
         return 0;
 #else
-    struct stat st;
+    struct stat st{};
     if (!stat(fileName.CString(), &st))
         return (unsigned)st.st_mtime;
     else
@@ -611,7 +616,7 @@ bool FileSystem::FileExists(const String& fileName) const
     if (attributes == INVALID_FILE_ATTRIBUTES || attributes & FILE_ATTRIBUTE_DIRECTORY)
         return false;
 #else
-    struct stat st;
+    struct stat st{};
     if (stat(fixedName.CString(), &st) || st.st_mode & S_IFDIR)
         return false;
 #endif
@@ -636,7 +641,7 @@ bool FileSystem::DirExists(const String& pathName) const
     if (URHO3D_IS_ASSET(fixedName))
     {
         // Split the pathname into two components: the longest parent directory path and the last name component
-        String assetPath(URHO3D_ASSET((fixedName + '/')));
+        String assetPath(URHO3D_ASSET((fixedName + "/")));
         String parentPath;
         unsigned pos = assetPath.FindLast('/', assetPath.Length() - 2);
         if (pos != String::NPOS)
@@ -665,7 +670,7 @@ bool FileSystem::DirExists(const String& pathName) const
     if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY))
         return false;
 #else
-    struct stat st;
+    struct stat st{};
     if (stat(fixedName.CString(), &st) || !(st.st_mode & S_IFDIR))
         return false;
 #endif
@@ -686,62 +691,45 @@ void FileSystem::ScanDir(Vector<String>& result, const String& pathName, const S
 
 String FileSystem::GetProgramDir() const
 {
-    // Return cached value if possible
-    if (!programDir_.Empty())
-        return programDir_;
-
 #if defined(__ANDROID__)
     // This is an internal directory specifier pointing to the assets in the .apk
     // Files from this directory will be opened using special handling
-    programDir_ = APK;
-    return programDir_;
-#elif defined(IOS)
-    programDir_ = AddTrailingSlash(SDL_IOS_GetResourceDir());
-    return programDir_;
+    return APK;
+#elif defined(IOS) || defined(TVOS)
+    return AddTrailingSlash(SDL_IOS_GetResourceDir());
 #elif defined(_WIN32)
     wchar_t exeName[MAX_PATH];
     exeName[0] = 0;
-    GetModuleFileNameW(0, exeName, MAX_PATH);
-    programDir_ = GetPath(String(exeName));
+    GetModuleFileNameW(nullptr, exeName, MAX_PATH);
+    return GetPath(String(exeName));
 #elif defined(__APPLE__)
     char exeName[MAX_PATH];
     memset(exeName, 0, MAX_PATH);
     unsigned size = MAX_PATH;
     _NSGetExecutablePath(exeName, &size);
-    programDir_ = GetPath(String(exeName));
+    return GetPath(String(exeName));
 #elif defined(__linux__)
     char exeName[MAX_PATH];
     memset(exeName, 0, MAX_PATH);
     pid_t pid = getpid();
     String link = "/proc/" + String(pid) + "/exe";
     readlink(link.CString(), exeName, MAX_PATH);
-    programDir_ = GetPath(String(exeName));
+    return GetPath(String(exeName));
+#else
+    return GetCurrentDir();
 #endif
-
-    // If the executable directory does not contain CoreData & Data directories, but the current working directory does, use the
-    // current working directory instead
-    /// \todo Should not rely on such fixed convention
-    String currentDir = GetCurrentDir();
-    if (!DirExists(programDir_ + "CoreData") && !DirExists(programDir_ + "Data") &&
-        (DirExists(currentDir + "CoreData") || DirExists(currentDir + "Data")))
-        programDir_ = currentDir;
-
-    // Sanitate /./ construct away
-    programDir_.Replace("/./", "/");
-
-    return programDir_;
 }
 
 String FileSystem::GetUserDocumentsDir() const
 {
 #if defined(__ANDROID__)
     return AddTrailingSlash(SDL_Android_GetFilesDir());
-#elif defined(IOS)
+#elif defined(IOS) || defined(TVOS)
     return AddTrailingSlash(SDL_IOS_GetDocumentsDir());
 #elif defined(_WIN32)
     wchar_t pathName[MAX_PATH];
     pathName[0] = 0;
-    SHGetSpecialFolderPathW(0, pathName, CSIDL_PERSONAL, 0);
+    SHGetSpecialFolderPathW(nullptr, pathName, CSIDL_PERSONAL, 0);
     return AddTrailingSlash(String(pathName));
 #else
     char pathName[MAX_PATH];
@@ -790,8 +778,8 @@ bool FileSystem::SetLastModifiedTime(const String& fileName, unsigned newTime)
     newTimes.modtime = newTime;
     return _utime(fileName.CString(), &newTimes) == 0;
 #else
-    struct stat oldTime;
-    struct utimbuf newTimes;
+    struct stat oldTime{};
+    struct utimbuf newTimes{};
     if (stat(fileName.CString(), &oldTime) != 0)
         return false;
     newTimes.actime = oldTime.st_atime;
@@ -808,7 +796,7 @@ void FileSystem::ScanDirInternal(Vector<String>& result, String path, const Stri
     if (path.Length() > startPath.Length())
         deltaPath = path.Substring(startPath.Length());
 
-    String filterExtension = filter.Substring(filter.Find('.'));
+    String filterExtension = filter.Substring(filter.FindLast('.'));
     if (filterExtension.Contains('*'))
         filterExtension.Clear();
 
@@ -880,7 +868,7 @@ void FileSystem::ScanDirInternal(Vector<String>& result, String path, const Stri
 #else
     DIR* dir;
     struct dirent* de;
-    struct stat st;
+    struct stat st{};
     dir = opendir(GetNativePath(path).CString());
     if (dir)
     {
@@ -1074,6 +1062,28 @@ bool IsAbsolutePath(const String& pathName)
 #endif
 
     return false;
+}
+
+String FileSystem::GetTemporaryDir() const
+{
+#if defined(_WIN32)
+#if defined(MINI_URHO)
+    return getenv("TMP");
+#else
+    wchar_t pathName[MAX_PATH];
+    pathName[0] = 0;
+    GetTempPathW(SDL_arraysize(pathName), pathName);
+    return AddTrailingSlash(String(pathName));
+#endif
+#else
+    if (char* pathName = getenv("TMPDIR"))
+        return AddTrailingSlash(pathName);
+#ifdef P_tmpdir
+    return AddTrailingSlash(P_tmpdir);
+#else
+    return "/tmp/";
+#endif
+#endif
 }
 
 }

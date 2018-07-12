@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -30,6 +30,11 @@
 
 namespace Urho3D
 {
+
+static const String base64_chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz"
+    "0123456789+/";
 
 unsigned CountElements(const char* buffer, char separator)
 {
@@ -93,7 +98,7 @@ bool ToBool(const char* source)
 
     for (unsigned i = 0; i < length; ++i)
     {
-        char c = (char)tolower(source[i]);
+        auto c = (char)tolower(source[i]);
         if (c == 't' || c == 'y' || c == '1')
             return true;
         else if (c != ' ' && c != '\t')
@@ -103,31 +108,71 @@ bool ToBool(const char* source)
     return false;
 }
 
-int ToInt(const String& source)
+int ToInt(const String& source, int base)
 {
-    return ToInt(source.CString());
+    return ToInt(source.CString(), base);
 }
 
-int ToInt(const char* source)
+int ToInt(const char* source, int base)
 {
     if (!source)
         return 0;
 
-    // Explicitly ask for base 10 to prevent source starts with '0' or '0x' from being converted to base 8 or base 16, respectively
-    return (int)strtol(source, 0, 10);
+    // Shield against runtime library assert by converting illegal base values to 0 (autodetect)
+    if (base < 2 || base > 36)
+        base = 0;
+
+    return (int)strtol(source, nullptr, base);
 }
 
-unsigned ToUInt(const String& source)
-{
-    return ToUInt(source.CString());
-}
-
-unsigned ToUInt(const char* source)
+long long ToInt64(const char* source, int base)
 {
     if (!source)
         return 0;
 
-    return (unsigned)strtoul(source, 0, 10);
+    // Shield against runtime library assert by converting illegal base values to 0 (autodetect)
+    if (base < 2 || base > 36)
+        base = 0;
+
+    return strtoll(source, nullptr, base);
+}
+
+long long ToInt64(const String& source, int base)
+{
+    return ToInt64(source.CString(), base);
+}
+
+unsigned ToUInt(const String& source, int base)
+{
+    return ToUInt(source.CString(), base);
+}
+
+unsigned long long ToUInt64(const char* source, int base)
+{
+    if (!source)
+        return 0;
+
+    // Shield against runtime library assert by converting illegal base values to 0 (autodetect)
+    if (base < 2 || base > 36)
+        base = 0;
+
+    return strtoull(source, nullptr, base);
+}
+
+unsigned long long ToUInt64(const String& source, int base)
+{
+    return ToUInt64(source.CString(), base);
+}
+
+unsigned ToUInt(const char* source, int base)
+{
+    if (!source)
+        return 0;
+
+    if (base < 2 || base > 36)
+        base = 0;
+
+    return (unsigned)strtoul(source, nullptr, base);
 }
 
 float ToFloat(const String& source)
@@ -140,7 +185,7 @@ float ToFloat(const char* source)
     if (!source)
         return 0;
 
-    return (float)strtod(source, 0);
+    return (float)strtod(source, nullptr);
 }
 
 double ToDouble(const String& source)
@@ -153,7 +198,7 @@ double ToDouble(const char* source)
     if (!source)
         return 0;
 
-    return strtod(source, 0);
+    return strtod(source, nullptr);
 }
 
 Color ToColor(const String& source)
@@ -169,7 +214,7 @@ Color ToColor(const char* source)
     if (elements < 3)
         return ret;
 
-    char* ptr = (char*)source;
+    auto* ptr = (char*)source;
     ret.r_ = (float)strtod(ptr, &ptr);
     ret.g_ = (float)strtod(ptr, &ptr);
     ret.b_ = (float)strtod(ptr, &ptr);
@@ -192,7 +237,7 @@ IntRect ToIntRect(const char* source)
     if (elements < 4)
         return ret;
 
-    char* ptr = (char*)source;
+    auto* ptr = (char*)source;
     ret.left_ = (int)strtol(ptr, &ptr, 10);
     ret.top_ = (int)strtol(ptr, &ptr, 10);
     ret.right_ = (int)strtol(ptr, &ptr, 10);
@@ -214,9 +259,30 @@ IntVector2 ToIntVector2(const char* source)
     if (elements < 2)
         return ret;
 
-    char* ptr = (char*)source;
+    auto* ptr = (char*)source;
     ret.x_ = (int)strtol(ptr, &ptr, 10);
     ret.y_ = (int)strtol(ptr, &ptr, 10);
+
+    return ret;
+}
+
+IntVector3 ToIntVector3(const String& source)
+{
+    return ToIntVector3(source.CString());
+}
+
+IntVector3 ToIntVector3(const char* source)
+{
+    IntVector3 ret(IntVector3::ZERO);
+
+    unsigned elements = CountElements(source, ' ');
+    if (elements < 3)
+        return ret;
+
+    auto* ptr = (char*)source;
+    ret.x_ = (int)strtol(ptr, &ptr, 10);
+    ret.y_ = (int)strtol(ptr, &ptr, 10);
+    ret.z_ = (int)strtol(ptr, &ptr, 10);
 
     return ret;
 }
@@ -234,7 +300,7 @@ Rect ToRect(const char* source)
     if (elements < 4)
         return ret;
 
-    char* ptr = (char*)source;
+    auto* ptr = (char*)source;
     ret.min_.x_ = (float)strtod(ptr, &ptr);
     ret.min_.y_ = (float)strtod(ptr, &ptr);
     ret.max_.x_ = (float)strtod(ptr, &ptr);
@@ -251,7 +317,7 @@ Quaternion ToQuaternion(const String& source)
 Quaternion ToQuaternion(const char* source)
 {
     unsigned elements = CountElements(source, ' ');
-    char* ptr = (char*)source;
+    auto* ptr = (char*)source;
 
     if (elements < 3)
         return Quaternion::IDENTITY;
@@ -291,7 +357,7 @@ Vector2 ToVector2(const char* source)
     if (elements < 2)
         return ret;
 
-    char* ptr = (char*)source;
+    auto* ptr = (char*)source;
     ret.x_ = (float)strtod(ptr, &ptr);
     ret.y_ = (float)strtod(ptr, &ptr);
 
@@ -311,7 +377,7 @@ Vector3 ToVector3(const char* source)
     if (elements < 3)
         return ret;
 
-    char* ptr = (char*)source;
+    auto* ptr = (char*)source;
     ret.x_ = (float)strtod(ptr, &ptr);
     ret.y_ = (float)strtod(ptr, &ptr);
     ret.z_ = (float)strtod(ptr, &ptr);
@@ -329,7 +395,7 @@ Vector4 ToVector4(const char* source, bool allowMissingCoords)
     Vector4 ret(Vector4::ZERO);
 
     unsigned elements = CountElements(source, ' ');
-    char* ptr = (char*)source;
+    auto* ptr = (char*)source;
 
     if (!allowMissingCoords)
     {
@@ -419,7 +485,7 @@ Matrix3 ToMatrix3(const char* source)
     if (elements < 9)
         return ret;
 
-    char* ptr = (char*)source;
+    auto* ptr = (char*)source;
     ret.m00_ = (float)strtod(ptr, &ptr);
     ret.m01_ = (float)strtod(ptr, &ptr);
     ret.m02_ = (float)strtod(ptr, &ptr);
@@ -446,7 +512,7 @@ Matrix3x4 ToMatrix3x4(const char* source)
     if (elements < 12)
         return ret;
 
-    char* ptr = (char*)source;
+    auto* ptr = (char*)source;
     ret.m00_ = (float)strtod(ptr, &ptr);
     ret.m01_ = (float)strtod(ptr, &ptr);
     ret.m02_ = (float)strtod(ptr, &ptr);
@@ -476,7 +542,7 @@ Matrix4 ToMatrix4(const char* source)
     if (elements < 16)
         return ret;
 
-    char* ptr = (char*)source;
+    auto* ptr = (char*)source;
     ret.m00_ = (float)strtod(ptr, &ptr);
     ret.m01_ = (float)strtod(ptr, &ptr);
     ret.m02_ = (float)strtod(ptr, &ptr);
@@ -512,7 +578,7 @@ String ToStringHex(unsigned value)
 void BufferToString(String& dest, const void* data, unsigned size)
 {
     // Precalculate needed string size
-    const unsigned char* bytes = (const unsigned char*)data;
+    const auto* bytes = (const unsigned char*)data;
     unsigned length = 0;
     for (unsigned i = 0; i < size; ++i)
     {
@@ -679,7 +745,7 @@ String GetFileSizeString(unsigned long long memorySize)
     }
     else
     {
-        const int exponent = (int)(log((double)memorySize) / log(1024.0));
+        const auto exponent = (int)(log((double)memorySize) / log(1024.0));
         const double majorValue = ((double)memorySize) / pow(1024.0, exponent);
         char buffer[64];
         memset(buffer, 0, 64);
@@ -690,6 +756,89 @@ String GetFileSizeString(unsigned long long memorySize)
     }
 
     return output;
+}
+
+// Implementation of base64 decoding originally by Ren� Nyffenegger.
+// Modified by Konstantin Guschin and Lasse Oorni
+
+/*
+base64.cpp and base64.h
+
+Copyright (C) 2004-2017 Ren� Nyffenegger
+
+This source code is provided 'as-is', without any express or implied
+warranty. In no event will the author be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this source code must not be misrepresented; you must not
+claim that you wrote the original source code. If you use this source code
+in a product, an acknowledgment in the product documentation would be
+appreciated but is not required.
+
+2. Altered source versions must be plainly marked as such, and must not be
+misrepresented as being the original source code.
+
+3. This notice may not be removed or altered from any source distribution.
+
+Ren� Nyffenegger rene.nyffenegger@adp-gmbh.ch
+
+*/
+
+static inline bool IsBase64(char c) {
+    return (isalnum(c) || (c == '+') || (c == '/'));
+}
+
+PODVector<unsigned char> DecodeBase64(String encodedString)
+{
+    int inLen = encodedString.Length();
+    int i = 0;
+    int j = 0;
+    int in_ = 0;
+    unsigned char charArray4[4], charArray3[3];
+    PODVector<unsigned char> ret;
+
+    while (inLen-- && (encodedString[in_] != '=') && IsBase64(encodedString[in_]))
+    {
+        charArray4[i++] = encodedString[in_];
+        in_++;
+
+        if (i == 4)
+        {
+            for (i = 0; i < 4; i++)
+                charArray4[i] = base64_chars.Find(charArray4[i]);
+
+            charArray3[0] = (charArray4[0] << 2u) + ((charArray4[1] & 0x30u) >> 4u);
+            charArray3[1] = ((charArray4[1] & 0xfu) << 4u) + ((charArray4[2] & 0x3cu) >> 2u);
+            charArray3[2] = ((charArray4[2] & 0x3u) << 6u) + charArray4[3];
+
+            for (i = 0; (i < 3); i++)
+                ret.Push(charArray3[i]);
+
+            i = 0;
+        }
+    }
+
+    if (i)
+    {
+        for (j = i; j <4; j++)
+            charArray4[j] = 0;
+
+        for (j = 0; j <4; j++)
+            charArray4[j] = base64_chars.Find(charArray4[j]);
+
+        charArray3[0] = (charArray4[0] << 2u) + ((charArray4[1] & 0x30u) >> 4u);
+        charArray3[1] = ((charArray4[1] & 0xfu) << 4u) + ((charArray4[2] & 0x3cu) >> 2u);
+        charArray3[2] = ((charArray4[2] & 0x3u) << 6u) + charArray4[3];
+
+        for (j = 0; (j < i - 1); j++)
+            ret.Push(charArray3[j]);
+    }
+
+    return ret;
 }
 
 }

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,10 @@
 #pragma once
 
 #include "../Core/Context.h"
+#ifdef _WIN32
+#include "../Graphics/IndexBuffer.h"
+#include "../Graphics/VertexBuffer.h"
+#endif
 
 struct lua_State;
 
@@ -31,7 +35,7 @@ using namespace Urho3D;
 /// Check is String.
 #define tolua_isurho3dstring tolua_isstring
 /// Push String.
-#define tolua_pushurho3dstring(L, s) tolua_pushstring(L, s.CString())
+#define tolua_pushurho3dstring(L, s) tolua_pushstring(L, s.CString())       // NOLINT(misc-macro-parentheses)
 /// Convert to String.
 const char* tolua_tourho3dstring(lua_State* L, int narg, const char* str);
 /// Convert to String.
@@ -45,7 +49,7 @@ Context* GetContext(lua_State* L);
 /// Create object.
 template <typename T> int ToluaNewObject(lua_State* tolua_S)
 {
-    T* object = Mtolua_new(T(GetContext(tolua_S)));
+    auto* object = Mtolua_new(T(GetContext(tolua_S)));
     tolua_pushusertype(tolua_S, (void*)object, T::GetTypeNameStatic().CString());
     return 1;
 }
@@ -53,7 +57,7 @@ template <typename T> int ToluaNewObject(lua_State* tolua_S)
 /// Create object with garbage collection.
 template <typename T> int ToluaNewObjectGC(lua_State* tolua_S)
 {
-    T* object = Mtolua_new(T(GetContext(tolua_S)));
+    auto* object = Mtolua_new(T(GetContext(tolua_S)));
     tolua_pushusertype(tolua_S, (void*)object, T::GetTypeNameStatic().CString());
     tolua_register_gc(tolua_S, lua_gettop(tolua_S));
     return 1;
@@ -77,7 +81,7 @@ template <typename T> int ToluaIsVector(lua_State* L, int lo, const char* type, 
 template <typename T> void* ToluaToVector(lua_State* L, int narg, void* def)
 {
     if (!lua_istable(L, narg))
-        return 0;
+        return nullptr;
     static Vector<T> result;
     result.Clear();
     result.Resize((unsigned)lua_objlen(L, narg));
@@ -126,7 +130,7 @@ template <typename T> void* ToluaToPODVector(lua_State* L, int narg, void* def)
 template <typename T> void* ToluaToPODVector(double /*overload*/, lua_State* L, int narg, void* /*def*/)
 {
     if (!lua_istable(L, narg))
-        return 0;
+        return nullptr;
     static PODVector<T> result;
     result.Clear();
     result.Resize((unsigned)lua_objlen(L, narg));
@@ -175,8 +179,7 @@ template <typename T> int ToluaPushPODVector(double /*overload*/, lua_State* L, 
 //   both compilers are able to avoid the multiple definitions of template instantiation symbol during linking by using weak symbol
 // MSVC and MinGW, however, follow the standard strictly, hence we need to declare all the explicit template specializations below
 //   to keep these two compilers happy
-// We do not use #ifdef MSVC/MINGW here because GCC and Clang are happy to comply with the C++ standard too
-
+#ifdef _WIN32
 template <> int ToluaIsVector<String>(lua_State* L, int lo, const char* type, int def, tolua_Error* err);
 template <> void* ToluaToVector<String>(lua_State* L, int narg, void* def);
 template <> int ToluaPushVector<String>(lua_State* L, void* data, const char* type);
@@ -185,11 +188,15 @@ template <> int ToluaIsPODVector<bool>(double /*overload*/, lua_State* L, int lo
 template <> void* ToluaToPODVector<bool>(double /*overload*/, lua_State* L, int narg, void* def);
 template <> int ToluaPushPODVector<bool>(double /*overload*/, lua_State* L, void* data, const char* type);
 
+template <> void* ToluaToVector<SharedPtr<IndexBuffer> >(lua_State* L, int narg, void* def);
+template <> void* ToluaToVector<SharedPtr<VertexBuffer> >(lua_State* L, int narg, void* def);
+#endif
+
 /// Convert object at the given index and store it in Variant. This function is not thread-safe.
 void ToluaToVariant(lua_State* L, int narg, void* def, Variant& variant);
 
 /// Push object stored in a Variant to stack. Empty variant value is pushed as nil.
-void ToluaPushVariant(lua_State* L, const Variant* variant, const char* type = 0);
+void ToluaPushVariant(lua_State* L, const Variant* variant, const char* type = nullptr);
 
 /// Push a registered Lua user type to stack. If the specified type is not yet registered, a nil is pushed instead.
 void ToluaPushRegisteredUserType(lua_State* L, void* data, const char* type);

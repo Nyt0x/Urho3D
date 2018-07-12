@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -48,6 +48,17 @@ namespace Urho3D
 {
 
 extern const char* GEOMETRY_CATEGORY;
+
+static const StringVector animationStatesStructureElementNames =
+{
+    "Anim State Count",
+    "   Animation",
+    "   Start Bone",
+    "   Is Looped",
+    "   Weight",
+    "   Time",
+    "   Layer"
+};
 
 static bool CompareAnimationOrder(const SharedPtr<AnimationState>& lhs, const SharedPtr<AnimationState>& rhs)
 {
@@ -107,34 +118,35 @@ void AnimatedModel::RegisterObject(Context* context)
     URHO3D_COPY_BASE_ATTRIBUTES(Drawable);
     URHO3D_MIXED_ACCESSOR_ATTRIBUTE("Bone Animation Enabled", GetBonesEnabledAttr, SetBonesEnabledAttr, VariantVector,
         Variant::emptyVariantVector, AM_FILE | AM_NOEDIT);
-    URHO3D_MIXED_ACCESSOR_ATTRIBUTE("Animation States", GetAnimationStatesAttr, SetAnimationStatesAttr, VariantVector,
-        Variant::emptyVariantVector, AM_FILE);
+    URHO3D_MIXED_ACCESSOR_ATTRIBUTE("Animation States", GetAnimationStatesAttr, SetAnimationStatesAttr,
+        VariantVector, Variant::emptyVariantVector, AM_FILE)
+        .SetMetadata(AttributeMetadata::P_VECTOR_STRUCT_ELEMENTS, animationStatesStructureElementNames);
     URHO3D_ACCESSOR_ATTRIBUTE("Morphs", GetMorphsAttr, SetMorphsAttr, PODVector<unsigned char>, Variant::emptyBuffer,
         AM_DEFAULT | AM_NOEDIT);
 }
 
-bool AnimatedModel::Load(Deserializer& source, bool setInstanceDefault)
+bool AnimatedModel::Load(Deserializer& source)
 {
     loading_ = true;
-    bool success = Component::Load(source, setInstanceDefault);
+    bool success = Component::Load(source);
     loading_ = false;
 
     return success;
 }
 
-bool AnimatedModel::LoadXML(const XMLElement& source, bool setInstanceDefault)
+bool AnimatedModel::LoadXML(const XMLElement& source)
 {
     loading_ = true;
-    bool success = Component::LoadXML(source, setInstanceDefault);
+    bool success = Component::LoadXML(source);
     loading_ = false;
 
     return success;
 }
 
-bool AnimatedModel::LoadJSON(const JSONValue& source, bool setInstanceDefault)
+bool AnimatedModel::LoadJSON(const JSONValue& source)
 {
     loading_ = true;
-    bool success = Component::LoadJSON(source, setInstanceDefault);
+    bool success = Component::LoadJSON(source);
     loading_ = false;
 
     return success;
@@ -322,6 +334,12 @@ void AnimatedModel::SetModel(Model* model, bool createBones)
     if (model == model_)
         return;
 
+    if (!node_)
+    {
+        URHO3D_LOGERROR("Can not set model while model component is not attached to a scene node");
+        return;
+    }
+
     // Unsubscribe from the reload event of previous model (if any), then subscribe to the new
     if (model_)
         UnsubscribeFromEvent(model_, E_RELOADFINISHED);
@@ -376,6 +394,10 @@ void AnimatedModel::SetModel(Model* model, bool createBones)
         SetSkeleton(model->GetSkeleton(), createBones);
         ResetLodLevels();
 
+        // Reserve space for skinning matrices
+        skinMatrices_.Resize(skeleton_.GetNumBones());
+        SetGeometryBoneMappings();
+
         // Enable skinning in batches
         for (unsigned i = 0; i < batches_.Size(); ++i)
         {
@@ -423,11 +445,11 @@ AnimationState* AnimatedModel::AddAnimationState(Animation* animation)
     if (!isMaster_)
     {
         URHO3D_LOGERROR("Can not add animation state to non-master model");
-        return 0;
+        return nullptr;
     }
 
     if (!animation || !skeleton_.GetNumBones())
-        return 0;
+        return nullptr;
 
     // Check for not adding twice
     AnimationState* existing = GetAnimationState(animation);
@@ -533,10 +555,8 @@ void AnimatedModel::SetMorphWeight(unsigned index, float weight)
         return;
 
     // If morph vertex buffers have not been created yet, create now
-    if (weight > 0.0f && morphVertexBuffers_.Empty())
+    if (weight != 0.0f && morphVertexBuffers_.Empty())
         CloneGeometries();
-
-    weight = Clamp(weight, 0.0f, 1.0f);
 
     if (weight != morphs_[index].weight_)
     {
@@ -642,7 +662,7 @@ AnimationState* AnimatedModel::GetAnimationState(Animation* animation) const
             return *i;
     }
 
-    return 0;
+    return nullptr;
 }
 
 AnimationState* AnimatedModel::GetAnimationState(const String& animationName) const
@@ -663,12 +683,12 @@ AnimationState* AnimatedModel::GetAnimationState(StringHash animationNameHash) c
         }
     }
 
-    return 0;
+    return nullptr;
 }
 
 AnimationState* AnimatedModel::GetAnimationState(unsigned index) const
 {
-    return index < animationStates_.Size() ? animationStates_[index].Get() : 0;
+    return index < animationStates_.Size() ? animationStates_[index].Get() : nullptr;
 }
 
 void AnimatedModel::SetSkeleton(const Skeleton& skeleton, bool createBones)
@@ -756,7 +776,7 @@ void AnimatedModel::SetSkeleton(const Skeleton& skeleton, bool createBones)
         skeleton_.Define(skeleton);
 
         // Instruct the master model to refresh (merge) its bone bounding boxes
-        AnimatedModel* master = node_->GetComponent<AnimatedModel>();
+        auto* master = node_->GetComponent<AnimatedModel>();
         if (master && master != this)
             master->FinalizeBoneBoundingBoxes();
 
@@ -773,16 +793,12 @@ void AnimatedModel::SetSkeleton(const Skeleton& skeleton, bool createBones)
         }
     }
 
-    // Reserve space for skinning matrices
-    skinMatrices_.Resize(skeleton_.GetNumBones());
-    SetGeometryBoneMappings();
-
     assignBonesPending_ = !createBones;
 }
 
 void AnimatedModel::SetModelAttr(const ResourceRef& value)
 {
-    ResourceCache* cache = GetSubsystem<ResourceCache>();
+    auto* cache = GetSubsystem<ResourceCache>();
     // When loading a scene, set model without creating the bone nodes (will be assigned later during post-load)
     SetModel(cache->GetResource<Model>(value.name_), !loading_);
 }
@@ -796,7 +812,7 @@ void AnimatedModel::SetBonesEnabledAttr(const VariantVector& value)
 
 void AnimatedModel::SetAnimationStatesAttr(const VariantVector& value)
 {
-    ResourceCache* cache = GetSubsystem<ResourceCache>();
+    auto* cache = GetSubsystem<ResourceCache>();
     RemoveAllAnimationStates();
     unsigned index = 0;
     unsigned numStates = index < value.Size() ? value[index++].GetUInt() : 0;
@@ -825,7 +841,7 @@ void AnimatedModel::SetAnimationStatesAttr(const VariantVector& value)
         else
         {
             // If not enough data, just add an empty animation state
-            SharedPtr<AnimationState> newState(new AnimationState(this, 0));
+            SharedPtr<AnimationState> newState(new AnimationState(this, nullptr));
             animationStates_.Push(newState);
         }
     }
@@ -951,7 +967,7 @@ void AnimatedModel::OnWorldBoundingBoxUpdate()
     {
         // Non-master animated models get the bounding box from the master
         /// \todo If it's a skinned attachment that does not cover the whole body, it will have unnecessarily large bounds
-        AnimatedModel* master = node_->GetComponent<AnimatedModel>();
+        auto* master = node_->GetComponent<AnimatedModel>();
         // Check if we've become the new master model in case the original was deleted
         if (master == this)
             isMaster_ = true;
@@ -1169,14 +1185,14 @@ void AnimatedModel::CopyMorphVertices(void* destVertexData, void* srcVertexData,
     unsigned normalOffset = srcBuffer->GetElementOffset(SEM_NORMAL);
     unsigned tangentOffset = srcBuffer->GetElementOffset(SEM_TANGENT);
     unsigned vertexSize = srcBuffer->GetVertexSize();
-    float* dest = (float*)destVertexData;
-    unsigned char* src = (unsigned char*)srcVertexData;
+    auto* dest = (float*)destVertexData;
+    auto* src = (unsigned char*)srcVertexData;
 
     while (vertexCount--)
     {
         if (mask & MASK_POSITION)
         {
-            float* posSrc = (float*)src;
+            auto* posSrc = (float*)src;
             dest[0] = posSrc[0];
             dest[1] = posSrc[1];
             dest[2] = posSrc[2];
@@ -1184,7 +1200,7 @@ void AnimatedModel::CopyMorphVertices(void* destVertexData, void* srcVertexData,
         }
         if (mask & MASK_NORMAL)
         {
-            float* normalSrc = (float*)(src + normalOffset);
+            auto* normalSrc = (float*)(src + normalOffset);
             dest[0] = normalSrc[0];
             dest[1] = normalSrc[1];
             dest[2] = normalSrc[2];
@@ -1192,7 +1208,7 @@ void AnimatedModel::CopyMorphVertices(void* destVertexData, void* srcVertexData,
         }
         if (mask & MASK_TANGENT)
         {
-            float* tangentSrc = (float*)(src + tangentOffset);
+            auto* tangentSrc = (float*)(src + tangentOffset);
             dest[0] = tangentSrc[0];
             dest[1] = tangentSrc[1];
             dest[2] = tangentSrc[2];
@@ -1254,6 +1270,11 @@ void AnimatedModel::UpdateAnimation(const FrameInfo& frame)
             animationLodTimer_ = 0.0f;
     }
 
+    ApplyAnimation();
+}
+
+void AnimatedModel::ApplyAnimation()
+{
     // Make sure animations are in ascending priority order
     if (animationOrderDirty_)
     {
@@ -1320,7 +1341,7 @@ void AnimatedModel::UpdateSkinning()
 
 void AnimatedModel::UpdateMorphs()
 {
-    Graphics* graphics = GetSubsystem<Graphics>();
+    auto* graphics = GetSubsystem<Graphics>();
     if (!graphics)
         return;
 
@@ -1345,7 +1366,7 @@ void AnimatedModel::UpdateMorphs()
 
                     for (unsigned j = 0; j < morphs_.Size(); ++j)
                     {
-                        if (morphs_[j].weight_ > 0.0f)
+                        if (morphs_[j].weight_ != 0.0f)
                         {
                             HashMap<unsigned, VertexBufferMorph>::Iterator k = morphs_[j].buffers_.Find(i);
                             if (k != morphs_[j].buffers_.End())
@@ -1372,7 +1393,7 @@ void AnimatedModel::ApplyMorph(VertexBuffer* buffer, void* destVertexData, unsig
     unsigned vertexSize = buffer->GetVertexSize();
 
     unsigned char* srcData = morph.morphData_;
-    unsigned char* destData = (unsigned char*)destVertexData;
+    auto* destData = (unsigned char*)destVertexData;
 
     while (vertexCount--)
     {
@@ -1381,8 +1402,8 @@ void AnimatedModel::ApplyMorph(VertexBuffer* buffer, void* destVertexData, unsig
 
         if (elementMask & MASK_POSITION)
         {
-            float* dest = (float*)(destData + vertexIndex * vertexSize);
-            float* src = (float*)srcData;
+            auto* dest = (float*)(destData + vertexIndex * vertexSize);
+            auto* src = (float*)srcData;
             dest[0] += src[0] * weight;
             dest[1] += src[1] * weight;
             dest[2] += src[2] * weight;
@@ -1390,8 +1411,8 @@ void AnimatedModel::ApplyMorph(VertexBuffer* buffer, void* destVertexData, unsig
         }
         if (elementMask & MASK_NORMAL)
         {
-            float* dest = (float*)(destData + vertexIndex * vertexSize + normalOffset);
-            float* src = (float*)srcData;
+            auto* dest = (float*)(destData + vertexIndex * vertexSize + normalOffset);
+            auto* src = (float*)srcData;
             dest[0] += src[0] * weight;
             dest[1] += src[1] * weight;
             dest[2] += src[2] * weight;
@@ -1399,8 +1420,8 @@ void AnimatedModel::ApplyMorph(VertexBuffer* buffer, void* destVertexData, unsig
         }
         if (elementMask & MASK_TANGENT)
         {
-            float* dest = (float*)(destData + vertexIndex * vertexSize + tangentOffset);
-            float* src = (float*)srcData;
+            auto* dest = (float*)(destData + vertexIndex * vertexSize + tangentOffset);
+            auto* src = (float*)srcData;
             dest[0] += src[0] * weight;
             dest[1] += src[1] * weight;
             dest[2] += src[2] * weight;

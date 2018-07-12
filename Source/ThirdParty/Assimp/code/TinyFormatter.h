@@ -2,7 +2,8 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2015, assimp team
+Copyright (c) 2006-2017, assimp team
+
 All rights reserved.
 
 Redistribution and use of this software in source and binary forms,
@@ -49,7 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sstream>
 
 namespace Assimp {
-    namespace Formatter {
+namespace Formatter {
 
 // ------------------------------------------------------------------------------------------------
 /** stringstream utility. Usage:
@@ -97,7 +98,7 @@ public:
     // being bound to const ref& function parameters. Copying streams is not permitted, though.
     // This workaround avoids this by manually specifying a copy ctor.
 #if !defined(__GNUC__) || !defined(__APPLE__) || __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)
-    basic_formatter(const basic_formatter& other) {
+    explicit basic_formatter(const basic_formatter& other) {
         underlying << (string)other;
     }
 #endif
@@ -160,4 +161,5 @@ typedef basic_formatter< wchar_t > wformat;
 } // ! namespace Formatter
 
 } // ! namespace Assimp
+
 #endif

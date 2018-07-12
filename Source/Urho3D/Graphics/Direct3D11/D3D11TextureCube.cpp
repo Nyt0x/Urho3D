@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -60,7 +60,7 @@ void TextureCube::Release()
         for (unsigned i = 0; i < MAX_TEXTURE_UNITS; ++i)
         {
             if (graphics_->GetTexture(i) == this)
-                graphics_->SetTexture(i, 0);
+                graphics_->SetTexture(i, nullptr);
         }
     }
 
@@ -71,6 +71,7 @@ void TextureCube::Release()
     }
 
     URHO3D_SAFE_RELEASE(object_.ptr_);
+    URHO3D_SAFE_RELEASE(resolveTexture_);
     URHO3D_SAFE_RELEASE(shaderResourceView_);
     URHO3D_SAFE_RELEASE(sampler_);
 }
@@ -130,7 +131,7 @@ bool TextureCube::SetData(CubeMapFace face, unsigned level, int x, int y, int wi
         }
 
         D3D11_MAPPED_SUBRESOURCE mappedData;
-        mappedData.pData = 0;
+        mappedData.pData = nullptr;
 
         HRESULT hr = graphics_->GetImpl()->GetDeviceContext()->Map((ID3D11Resource*)object_.ptr_, subResource, D3D11_MAP_WRITE_DISCARD, 0,
             &mappedData);
@@ -365,6 +366,15 @@ bool TextureCube::GetData(CubeMapFace face, unsigned level, void* dest) const
         return false;
     }
 
+    if (multiSample_ > 1 && !autoResolve_)
+    {
+        URHO3D_LOGERROR("Can not get data from multisampled texture without autoresolve");
+        return false;
+    }
+
+    if (resolveDirty_)
+        graphics_->ResolveToTexture(const_cast<TextureCube*>(this));
+
     int levelWidth = GetLevelWidth(level);
     int levelHeight = GetLevelHeight(level);
 
@@ -380,16 +390,18 @@ bool TextureCube::GetData(CubeMapFace face, unsigned level, void* dest) const
     textureDesc.Usage = D3D11_USAGE_STAGING;
     textureDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 
-    ID3D11Texture2D* stagingTexture = 0;
-    HRESULT hr = graphics_->GetImpl()->GetDevice()->CreateTexture2D(&textureDesc, 0, &stagingTexture);
+    ID3D11Texture2D* stagingTexture = nullptr;
+    HRESULT hr = graphics_->GetImpl()->GetDevice()->CreateTexture2D(&textureDesc, nullptr, &stagingTexture);
     if (FAILED(hr))
     {
-        URHO3D_SAFE_RELEASE(stagingTexture);
         URHO3D_LOGD3DERROR("Failed to create staging texture for GetData", hr);
+        URHO3D_SAFE_RELEASE(stagingTexture);
         return false;
     }
 
+    ID3D11Resource* srcResource = (ID3D11Resource*)(resolveTexture_ ? resolveTexture_ : object_.ptr_);
     unsigned srcSubResource = D3D11CalcSubresource(level, face, levels_);
+
     D3D11_BOX srcBox;
     srcBox.left = 0;
     srcBox.right = (UINT)levelWidth;
@@ -397,11 +409,11 @@ bool TextureCube::GetData(CubeMapFace face, unsigned level, void* dest) const
     srcBox.bottom = (UINT)levelHeight;
     srcBox.front = 0;
     srcBox.back = 1;
-    graphics_->GetImpl()->GetDeviceContext()->CopySubresourceRegion(stagingTexture, 0, 0, 0, 0, (ID3D11Resource*)object_.ptr_,
+    graphics_->GetImpl()->GetDeviceContext()->CopySubresourceRegion(stagingTexture, 0, 0, 0, 0, srcResource,
         srcSubResource, &srcBox);
 
     D3D11_MAPPED_SUBRESOURCE mappedData;
-    mappedData.pData = 0;
+    mappedData.pData = nullptr;
     unsigned rowSize = GetRowDataSize(levelWidth);
     unsigned numRows = (unsigned)(IsCompressed() ? (levelHeight + 3) >> 2 : levelHeight);
 
@@ -409,7 +421,7 @@ bool TextureCube::GetData(CubeMapFace face, unsigned level, void* dest) const
     if (FAILED(hr) || !mappedData.pData)
     {
         URHO3D_LOGD3DERROR("Failed to map staging texture for GetData", hr);
-        stagingTexture->Release();
+        URHO3D_SAFE_RELEASE(stagingTexture);
         return false;
     }
     else
@@ -417,7 +429,7 @@ bool TextureCube::GetData(CubeMapFace face, unsigned level, void* dest) const
         for (unsigned row = 0; row < numRows; ++row)
             memcpy((unsigned char*)dest + row * rowSize, (unsigned char*)mappedData.pData + row * mappedData.RowPitch, rowSize);
         graphics_->GetImpl()->GetDeviceContext()->Unmap((ID3D11Resource*)stagingTexture, 0);
-        stagingTexture->Release();
+        URHO3D_SAFE_RELEASE(stagingTexture);
         return true;
     }
 }
@@ -433,13 +445,26 @@ bool TextureCube::Create()
 
     D3D11_TEXTURE2D_DESC textureDesc;
     memset(&textureDesc, 0, sizeof textureDesc);
+    textureDesc.Format = (DXGI_FORMAT)(sRGB_ ? GetSRGBFormat(format_) : format_);
+
+    // Disable multisampling if not supported
+    if (multiSample_ > 1 && !graphics_->GetImpl()->CheckMultiSampleSupport(textureDesc.Format, multiSample_))
+    {
+        multiSample_ = 1;
+        autoResolve_ = false;
+    }
+
+    // Set mipmapping
+    if (usage_ == TEXTURE_RENDERTARGET && levels_ != 1 && multiSample_ == 1)
+        textureDesc.MiscFlags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
+
     textureDesc.Width = (UINT)width_;
     textureDesc.Height = (UINT)height_;
-    textureDesc.MipLevels = levels_;
+    // Disable mip levels from the multisample texture. Rather create them to the resolve texture
+    textureDesc.MipLevels = (multiSample_ == 1 && usage_ != TEXTURE_DYNAMIC) ? levels_ : 1;
     textureDesc.ArraySize = MAX_CUBEMAP_FACES;
-    textureDesc.Format = (DXGI_FORMAT)(sRGB_ ? GetSRGBFormat(format_) : format_);
-    textureDesc.SampleDesc.Count = 1;
-    textureDesc.SampleDesc.Quality = 0;
+    textureDesc.SampleDesc.Count = (UINT)multiSample_;
+    textureDesc.SampleDesc.Quality = graphics_->GetImpl()->GetMultiSampleQuality(textureDesc.Format, multiSample_);
     textureDesc.Usage = usage_ == TEXTURE_DYNAMIC ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
     textureDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
     if (usage_ == TEXTURE_RENDERTARGET)
@@ -447,28 +472,51 @@ bool TextureCube::Create()
     else if (usage_ == TEXTURE_DEPTHSTENCIL)
         textureDesc.BindFlags |= D3D11_BIND_DEPTH_STENCIL;
     textureDesc.CPUAccessFlags = usage_ == TEXTURE_DYNAMIC ? D3D11_CPU_ACCESS_WRITE : 0;
-    textureDesc.MiscFlags = D3D11_RESOURCE_MISC_TEXTURECUBE;
+    // When multisample is specified, creating an actual cube texture will fail. Rather create as a 2D texture array
+    // whose faces will be rendered to; only the resolve texture will be an actual cube texture
+    if (multiSample_ < 2)
+        textureDesc.MiscFlags |= D3D11_RESOURCE_MISC_TEXTURECUBE;
 
-    HRESULT hr = graphics_->GetImpl()->GetDevice()->CreateTexture2D(&textureDesc, 0, (ID3D11Texture2D**)&object_.ptr_);
+    HRESULT hr = graphics_->GetImpl()->GetDevice()->CreateTexture2D(&textureDesc, nullptr, (ID3D11Texture2D**)&object_.ptr_);
     if (FAILED(hr))
     {
-        URHO3D_SAFE_RELEASE(object_.ptr_);
         URHO3D_LOGD3DERROR("Failed to create texture", hr);
+        URHO3D_SAFE_RELEASE(object_.ptr_);
         return false;
+    }
+
+    // Create resolve texture for multisampling
+    if (multiSample_ > 1)
+    {
+        textureDesc.SampleDesc.Count = 1;
+        textureDesc.SampleDesc.Quality = 0;
+        textureDesc.MiscFlags |= D3D11_RESOURCE_MISC_TEXTURECUBE;
+        if (levels_ != 1)
+            textureDesc.MiscFlags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
+
+        HRESULT hr = graphics_->GetImpl()->GetDevice()->CreateTexture2D(&textureDesc, nullptr, (ID3D11Texture2D**)&resolveTexture_);
+        if (FAILED(hr))
+        {
+            URHO3D_LOGD3DERROR("Failed to create resolve texture", hr);
+            URHO3D_SAFE_RELEASE(resolveTexture_);
+            return false;
+        }
     }
 
     D3D11_SHADER_RESOURCE_VIEW_DESC resourceViewDesc;
     memset(&resourceViewDesc, 0, sizeof resourceViewDesc);
     resourceViewDesc.Format = (DXGI_FORMAT)GetSRVFormat(textureDesc.Format);
     resourceViewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURECUBE;
-    resourceViewDesc.Texture2D.MipLevels = (UINT)levels_;
+    resourceViewDesc.Texture2D.MipLevels = usage_ != TEXTURE_DYNAMIC ? (UINT)levels_ : 1;
 
-    hr = graphics_->GetImpl()->GetDevice()->CreateShaderResourceView((ID3D11Resource*)object_.ptr_, &resourceViewDesc,
+    // Sample the resolve texture if created, otherwise the original
+    ID3D11Resource* viewObject = resolveTexture_ ? (ID3D11Resource*)resolveTexture_ : (ID3D11Resource*)object_.ptr_;
+    hr = graphics_->GetImpl()->GetDevice()->CreateShaderResourceView(viewObject, &resourceViewDesc,
         (ID3D11ShaderResourceView**)&shaderResourceView_);
     if (FAILED(hr))
     {
-        URHO3D_SAFE_RELEASE(shaderResourceView_);
         URHO3D_LOGD3DERROR("Failed to create shader resource view for texture", hr);
+        URHO3D_SAFE_RELEASE(shaderResourceView_);
         return false;
     }
 
@@ -479,18 +527,27 @@ bool TextureCube::Create()
             D3D11_RENDER_TARGET_VIEW_DESC renderTargetViewDesc;
             memset(&renderTargetViewDesc, 0, sizeof renderTargetViewDesc);
             renderTargetViewDesc.Format = textureDesc.Format;
-            renderTargetViewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
-            renderTargetViewDesc.Texture2DArray.ArraySize = 1;
-            renderTargetViewDesc.Texture2DArray.FirstArraySlice = i;
-            renderTargetViewDesc.Texture2DArray.MipSlice = 0;
+            if (multiSample_ > 1)
+            {
+                renderTargetViewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY;
+                renderTargetViewDesc.Texture2DMSArray.ArraySize = 1;
+                renderTargetViewDesc.Texture2DMSArray.FirstArraySlice = i;
+            }
+            else
+            {
+                renderTargetViewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DARRAY;
+                renderTargetViewDesc.Texture2DArray.ArraySize = 1;
+                renderTargetViewDesc.Texture2DArray.FirstArraySlice = i;
+                renderTargetViewDesc.Texture2DArray.MipSlice = 0;
+            }
 
             hr = graphics_->GetImpl()->GetDevice()->CreateRenderTargetView((ID3D11Resource*)object_.ptr_, &renderTargetViewDesc,
                 (ID3D11RenderTargetView**)&renderSurfaces_[i]->renderTargetView_);
 
             if (FAILED(hr))
             {
-                URHO3D_SAFE_RELEASE(renderSurfaces_[i]->renderTargetView_);
                 URHO3D_LOGD3DERROR("Failed to create rendertarget view for texture", hr);
+                URHO3D_SAFE_RELEASE(renderSurfaces_[i]->renderTargetView_);
                 return false;
             }
         }

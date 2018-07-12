@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -22,6 +22,7 @@
 
 #include "../Precompiled.h"
 
+#include "../Core/Profiler.h"
 #include "../Graphics/AnimatedModel.h"
 #include "../Graphics/Animation.h"
 #include "../Graphics/AnimationController.h"
@@ -37,20 +38,23 @@
 #include "../Graphics/ParticleEmitter.h"
 #include "../Graphics/RibbonTrail.h"
 #include "../Graphics/Shader.h"
+#include "../Graphics/ShaderPrecache.h"
 #include "../Graphics/Skybox.h"
 #include "../Graphics/StaticModelGroup.h"
 #include "../Graphics/Technique.h"
 #include "../Graphics/Terrain.h"
 #include "../Graphics/TerrainPatch.h"
+#ifdef _WIN32
 #include "../Graphics/Texture2D.h"
+#endif
 #include "../Graphics/Texture2DArray.h"
 #include "../Graphics/Texture3D.h"
 #include "../Graphics/TextureCube.h"
 #include "../Graphics/Zone.h"
+#include "../IO/FileSystem.h"
 #include "../IO/Log.h"
 
 #include <SDL/SDL.h>
-#include <SDL/SDL_syswm.h>
 
 #include "../DebugNew.h"
 
@@ -100,35 +104,99 @@ void Graphics::SetOrientations(const String& orientations)
 
 bool Graphics::ToggleFullscreen()
 {
-    return SetMode(width_, height_, !fullscreen_, borderless_, resizable_, highDPI_, vsync_, tripleBuffer_, multiSample_);
+    return SetMode(width_, height_, !fullscreen_, borderless_, resizable_, highDPI_, vsync_, tripleBuffer_, multiSample_, monitor_, refreshRate_);
+}
+
+void Graphics::SetShaderParameter(StringHash param, const Variant& value)
+{
+    switch (value.GetType())
+    {
+    case VAR_BOOL:
+        SetShaderParameter(param, value.GetBool());
+        break;
+
+    case VAR_INT:
+        SetShaderParameter(param, value.GetInt());
+        break;
+
+    case VAR_FLOAT:
+    case VAR_DOUBLE:
+        SetShaderParameter(param, value.GetFloat());
+        break;
+
+    case VAR_VECTOR2:
+        SetShaderParameter(param, value.GetVector2());
+        break;
+
+    case VAR_VECTOR3:
+        SetShaderParameter(param, value.GetVector3());
+        break;
+
+    case VAR_VECTOR4:
+        SetShaderParameter(param, value.GetVector4());
+        break;
+
+    case VAR_COLOR:
+        SetShaderParameter(param, value.GetColor());
+        break;
+
+    case VAR_MATRIX3:
+        SetShaderParameter(param, value.GetMatrix3());
+        break;
+
+    case VAR_MATRIX3X4:
+        SetShaderParameter(param, value.GetMatrix3x4());
+        break;
+
+    case VAR_MATRIX4:
+        SetShaderParameter(param, value.GetMatrix4());
+        break;
+
+    case VAR_BUFFER:
+        {
+            const PODVector<unsigned char>& buffer = value.GetBuffer();
+            if (buffer.Size() >= sizeof(float))
+                SetShaderParameter(param, reinterpret_cast<const float*>(&buffer[0]), buffer.Size() / sizeof(float));
+        }
+        break;
+
+    default:
+        // Unsupported parameter type, do nothing
+        break;
+    }
 }
 
 IntVector2 Graphics::GetWindowPosition() const
 {
     if (window_)
-        return position_;
-    return IntVector2::ZERO;
+    {
+        IntVector2 position;
+        SDL_GetWindowPosition(window_, &position.x_, &position.y_);
+        return position;
+    }
+    return position_;
 }
 
-PODVector<IntVector2> Graphics::GetResolutions() const
+PODVector<IntVector3> Graphics::GetResolutions(int monitor) const
 {
-    PODVector<IntVector2> ret;
+    PODVector<IntVector3> ret;
     // Emscripten is not able to return a valid list
 #ifndef __EMSCRIPTEN__
-    unsigned numModes = (unsigned)SDL_GetNumDisplayModes(0);
+    auto numModes = (unsigned)SDL_GetNumDisplayModes(monitor);
 
     for (unsigned i = 0; i < numModes; ++i)
     {
         SDL_DisplayMode mode;
-        SDL_GetDisplayMode(0, i, &mode);
+        SDL_GetDisplayMode(monitor, i, &mode);
         int width = mode.w;
         int height = mode.h;
+        int rate = mode.refresh_rate;
 
         // Store mode if unique
         bool unique = true;
         for (unsigned j = 0; j < ret.Size(); ++j)
         {
-            if (ret[j].x_ == width && ret[j].y_ == height)
+            if (ret[j].x_ == width && ret[j].y_ == height && ret[j].z_ == rate)
             {
                 unique = false;
                 break;
@@ -136,23 +204,45 @@ PODVector<IntVector2> Graphics::GetResolutions() const
         }
 
         if (unique)
-            ret.Push(IntVector2(width, height));
+            ret.Push(IntVector3(width, height, rate));
     }
 #endif
 
     return ret;
 }
 
-IntVector2 Graphics::GetDesktopResolution() const
+IntVector2 Graphics::GetDesktopResolution(int monitor) const
 {
-#if !defined(__ANDROID__) && !defined(IOS)
+#if !defined(__ANDROID__) && !defined(IOS) && !defined(TVOS)
     SDL_DisplayMode mode;
-    SDL_GetDesktopDisplayMode(0, &mode);
+    SDL_GetDesktopDisplayMode(monitor, &mode);
     return IntVector2(mode.w, mode.h);
 #else
     // SDL_GetDesktopDisplayMode() may not work correctly on mobile platforms. Rather return the window size
     return IntVector2(width_, height_);
 #endif
+}
+
+int Graphics::GetMonitorCount() const
+{
+    return SDL_GetNumVideoDisplays();
+}
+
+int Graphics::GetCurrentMonitor() const
+{
+    return window_ ? SDL_GetWindowDisplayIndex(window_) : 0;
+}
+
+bool Graphics::GetMaximized() const
+{
+    return window_? static_cast<bool>(SDL_GetWindowFlags(window_) & SDL_WINDOW_MAXIMIZED) : false;
+}
+
+Vector3 Graphics::GetDisplayDPI(int monitor) const
+{
+    Vector3 result;
+    SDL_GetDisplayDPI(monitor, &result.z_, &result.x_, &result.y_);
+    return result;
 }
 
 void Graphics::Maximize()
@@ -169,6 +259,38 @@ void Graphics::Minimize()
         return;
 
     SDL_MinimizeWindow(window_);
+}
+
+void Graphics::Raise() const
+{
+    if (!window_)
+        return;
+
+    SDL_RaiseWindow(window_);
+}
+
+void Graphics::BeginDumpShaders(const String& fileName)
+{
+    shaderPrecache_ = new ShaderPrecache(context_, fileName);
+}
+
+void Graphics::EndDumpShaders()
+{
+    shaderPrecache_.Reset();
+}
+
+void Graphics::PrecacheShaders(Deserializer& source)
+{
+    URHO3D_PROFILE(PrecacheShaders);
+
+    ShaderPrecache::LoadShaders(this, source);
+}
+
+void Graphics::SetShaderCacheDir(const String& path)
+{
+    String trimmedPath = path.Trimmed();
+    if (trimmedPath.Length())
+        shaderCacheDir_ = AddTrailingSlash(trimmedPath);
 }
 
 void Graphics::AddGPUObject(GPUObject* object)
@@ -188,7 +310,7 @@ void Graphics::RemoveGPUObject(GPUObject* object)
 void* Graphics::ReserveScratchBuffer(unsigned size)
 {
     if (!size)
-        return 0;
+        return nullptr;
 
     if (size > maxScratchBufferRequest_)
         maxScratchBufferRequest_ = size;
@@ -252,7 +374,7 @@ void Graphics::CleanupScratchBuffers()
     {
         if (!i->reserved_ && i->size_ > maxScratchBufferRequest_ * 2 && i->size_ >= 1024 * 1024)
         {
-            i->data_ = maxScratchBufferRequest_ > 0 ? new unsigned char[maxScratchBufferRequest_] : 0;
+            i->data_ = maxScratchBufferRequest_ > 0 ? (new unsigned char[maxScratchBufferRequest_]) : nullptr;
             i->size_ = maxScratchBufferRequest_;
 
             URHO3D_LOGDEBUG("Resized scratch buffer to size " + String(maxScratchBufferRequest_));

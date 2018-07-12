@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -44,14 +44,14 @@ class XMLWriter : public pugi::xml_writer
 {
 public:
     /// Construct.
-    XMLWriter(Serializer& dest) :
+    explicit XMLWriter(Serializer& dest) :
         dest_(dest),
         success_(true)
     {
     }
 
     /// Write bytes to output.
-    void write(const void* data, size_t size)
+    void write(const void* data, size_t size) override
     {
         if (dest_.Write(data, (unsigned)size) != size)
             success_ = false;
@@ -69,11 +69,7 @@ XMLFile::XMLFile(Context* context) :
 {
 }
 
-XMLFile::~XMLFile()
-{
-    delete document_;
-    document_ = 0;
-}
+XMLFile::~XMLFile() = default;
 
 void XMLFile::RegisterObject(Context* context)
 {
@@ -105,7 +101,7 @@ bool XMLFile::BeginLoad(Deserializer& source)
     if (!inherit.Empty())
     {
         // The existence of this attribute indicates this is an RFC 5261 patch file
-        ResourceCache* cache = GetSubsystem<ResourceCache>();
+        auto* cache = GetSubsystem<ResourceCache>();
         // If being async loaded, GetResource() is not safe, so use GetTempResource() instead
         XMLFile* inheritedXMLFile = GetAsyncLoadState() == ASYNC_DONE ? cache->GetResource<XMLFile>(inherit) :
             cache->GetTempResource<XMLFile>(inherit);
@@ -116,11 +112,10 @@ bool XMLFile::BeginLoad(Deserializer& source)
         }
 
         // Patch this XMLFile and leave the original inherited XMLFile as it is
-        pugi::xml_document* patchDocument = document_;
+        UniquePtr<pugi::xml_document> patchDocument(document_.Detach());
         document_ = new pugi::xml_document();
         document_->reset(*inheritedXMLFile->document_);
         Patch(rootElem);
-        delete patchDocument;
 
         // Store resource dependencies so we know when to reload/repatch when the inherited resource changes
         cache->StoreResourceDependency(this, inherit);
@@ -151,6 +146,17 @@ XMLElement XMLFile::CreateRoot(const String& name)
     document_->reset();
     pugi::xml_node root = document_->append_child(name.CString());
     return XMLElement(this, root.internal_object());
+}
+
+XMLElement XMLFile::GetOrCreateRoot(const String& name)
+{
+    XMLElement root = GetRoot(name);
+    if (root.NotNull())
+        return root;
+    root = GetRoot();
+    if (root.NotNull())
+        URHO3D_LOGWARNING("XMLFile already has root " + root.GetName() + ", deleting it and creating root " + name);
+    return CreateRoot(name);
 }
 
 bool XMLFile::FromString(const String& source)
@@ -187,13 +193,13 @@ void XMLFile::Patch(XMLFile* patchFile)
     Patch(patchFile->GetRoot());
 }
 
-void XMLFile::Patch(XMLElement patchElement)
+void XMLFile::Patch(const XMLElement& patchElement)
 {
     pugi::xml_node root = pugi::xml_node(patchElement.GetNode());
 
-    for (pugi::xml_node::iterator patch = root.begin(); patch != root.end(); patch++)
+    for (auto& patch : root)
     {
-        pugi::xml_attribute sel = patch->attribute("sel");
+        pugi::xml_attribute sel = patch.attribute("sel");
         if (sel.empty())
         {
             URHO3D_LOGERROR("XML Patch failed due to node not having a sel attribute.");
@@ -208,11 +214,11 @@ void XMLFile::Patch(XMLElement patchElement)
             continue;
         }
 
-        if (strcmp(patch->name(), "add") == 0)
-            PatchAdd(*patch, original);
-        else if (strcmp(patch->name(), "replace") == 0)
-            PatchReplace(*patch, original);
-        else if (strcmp(patch->name(), "remove") == 0)
+        if (strcmp(patch.name(), "add") == 0)
+            PatchAdd(patch, original);
+        else if (strcmp(patch.name(), "replace") == 0)
+            PatchReplace(patch, original);
+        else if (strcmp(patch.name(), "remove") == 0)
             PatchRemove(original);
         else
             URHO3D_LOGERROR("XMLFiles used for patching should only use 'add', 'replace' or 'remove' elements.");

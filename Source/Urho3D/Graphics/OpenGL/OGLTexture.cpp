@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -89,11 +89,20 @@ void Texture::UpdateParameters()
     if (!object_.name_ || !graphics_)
         return;
 
-    // Wrapping
-    glTexParameteri(target_, GL_TEXTURE_WRAP_S, GetWrapMode(addressMode_[COORD_U]));
-    glTexParameteri(target_, GL_TEXTURE_WRAP_T, GetWrapMode(addressMode_[COORD_V]));
+    // If texture is multisampled, do not attempt to set parameters as it's illegal, just return
 #ifndef GL_ES_VERSION_2_0
-    glTexParameteri(target_, GL_TEXTURE_WRAP_R, GetWrapMode(addressMode_[COORD_W]));
+    if (target_ == GL_TEXTURE_2D_MULTISAMPLE)
+    {
+        parametersDirty_ = false;
+        return;
+    }
+#endif
+
+    // Wrapping
+    glTexParameteri(target_, GL_TEXTURE_WRAP_S, GetWrapMode(addressModes_[COORD_U]));
+    glTexParameteri(target_, GL_TEXTURE_WRAP_T, GetWrapMode(addressModes_[COORD_V]));
+#ifndef GL_ES_VERSION_2_0
+    glTexParameteri(target_, GL_TEXTURE_WRAP_R, GetWrapMode(addressModes_[COORD_W]));
 #endif
 
     TextureFilterMode filterMode = filterMode_;
@@ -104,7 +113,10 @@ void Texture::UpdateParameters()
     switch (filterMode)
     {
     case FILTER_NEAREST:
-        glTexParameteri(target_, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        if (levels_ < 2)
+            glTexParameteri(target_, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        else
+            glTexParameteri(target_, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
         glTexParameteri(target_, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         break;
 
@@ -125,6 +137,14 @@ void Texture::UpdateParameters()
         glTexParameteri(target_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         break;
 
+    case FILTER_NEAREST_ANISOTROPIC:
+        if (levels_ < 2)
+            glTexParameteri(target_, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        else
+            glTexParameteri(target_, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+        glTexParameteri(target_, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        break;
+
     default:
         break;
     }
@@ -133,8 +153,9 @@ void Texture::UpdateParameters()
     // Anisotropy
     if (graphics_->GetAnisotropySupport())
     {
+        unsigned maxAnisotropy = anisotropy_ ? anisotropy_ : graphics_->GetDefaultTextureAnisotropy();
         glTexParameterf(target_, GL_TEXTURE_MAX_ANISOTROPY_EXT,
-            filterMode == FILTER_ANISOTROPIC ? (float)graphics_->GetTextureAnisotropy() : 1.0f);
+            (filterMode == FILTER_ANISOTROPIC || filterMode == FILTER_NEAREST_ANISOTROPIC) ? (float)maxAnisotropy : 1.0f);
     }
 
     // Shadow compare
@@ -205,22 +226,22 @@ unsigned Texture::GetRowDataSize(int width) const
 #endif
 
     case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
-        return (unsigned)(((width + 3) >> 2) * 8);
+        return ((unsigned)(width + 3) >> 2u) * 8;
 
     case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
     case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
-        return (unsigned)(((width + 3) >> 2) * 16);
+        return ((unsigned)(width + 3) >> 2u) * 16;
 
     case GL_ETC1_RGB8_OES:
-        return (unsigned)(((width + 3) >> 2) * 8);
+        return ((unsigned)(width + 3) >> 2u) * 8;
 
     case COMPRESSED_RGB_PVRTC_4BPPV1_IMG:
     case COMPRESSED_RGBA_PVRTC_4BPPV1_IMG:
-        return (unsigned)((width * 4 + 7) >> 3);
+        return (unsigned)(width * 4 + 7) >> 3u;
 
     case COMPRESSED_RGB_PVRTC_2BPPV1_IMG:
     case COMPRESSED_RGBA_PVRTC_2BPPV1_IMG:
-        return (unsigned)((width * 2 + 7) >> 3);
+        return (unsigned)(width * 2 + 7) >> 3u;
 
     default:
         return 0;
@@ -304,6 +325,23 @@ unsigned Texture::GetSRGBFormat(unsigned format)
 #else
     return format;
 #endif
+}
+
+void Texture::RegenerateLevels()
+{
+    if (!object_.name_)
+        return;
+
+#ifndef GL_ES_VERSION_2_0
+    if (Graphics::GetGL3Support())
+        glGenerateMipmap(target_);
+    else
+        glGenerateMipmapEXT(target_);
+#else
+    glGenerateMipmap(target_);
+#endif
+
+    levelsDirty_ = false;
 }
 
 }

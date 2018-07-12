@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -57,8 +57,6 @@ struct URHO3D_API Billboard
     float screenScaleFactor_;
 };
 
-static const unsigned MAX_BILLBOARDS = 65536 / 4;
-
 /// %Billboard component.
 class URHO3D_API BillboardSet : public Drawable
 {
@@ -66,20 +64,20 @@ class URHO3D_API BillboardSet : public Drawable
 
 public:
     /// Construct.
-    BillboardSet(Context* context);
+    explicit BillboardSet(Context* context);
     /// Destruct.
-    virtual ~BillboardSet();
+    ~BillboardSet() override;
     /// Register object factory.
     static void RegisterObject(Context* context);
 
     /// Process octree raycast. May be called from a worker thread.
-    virtual void ProcessRayQuery(const RayOctreeQuery& query, PODVector<RayQueryResult>& results);
+    void ProcessRayQuery(const RayOctreeQuery& query, PODVector<RayQueryResult>& results) override;
     /// Calculate distance and prepare batches for rendering. May be called from worker thread(s), possibly re-entrantly.
-    virtual void UpdateBatches(const FrameInfo& frame);
+    void UpdateBatches(const FrameInfo& frame) override;
     /// Prepare geometry for rendering. Called from a worker thread if possible (no GPU update.)
-    virtual void UpdateGeometry(const FrameInfo& frame);
+    void UpdateGeometry(const FrameInfo& frame) override;
     /// Return whether a geometry update is necessary, and if it can happen in a worker thread.
-    virtual UpdateGeometryType GetUpdateGeometryType();
+    UpdateGeometryType GetUpdateGeometryType() override;
 
     /// Set material.
     void SetMaterial(Material* material);
@@ -95,6 +93,8 @@ public:
     void SetFixedScreenSize(bool enable);
     /// Set how the billboards should rotate in relation to the camera. Default is to follow camera rotation on all axes (FC_ROTATE_XYZ.)
     void SetFaceCameraMode(FaceCameraMode mode);
+    /// Set minimal angle between billboard normal and look-at direction.
+    void SetMinAngle(float angle);
     /// Set animation LOD bias.
     void SetAnimationLodBias(float bias);
     /// Mark for bounding box and vertex buffer update. Call after modifying the billboards.
@@ -127,6 +127,9 @@ public:
     /// Return how the billboards rotate in relation to the camera.
     FaceCameraMode GetFaceCameraMode() const { return faceCameraMode_; }
 
+    /// Return minimal angle between billboard normal and look-at direction.
+    float GetMinAngle() const { return minAngle_; }
+
     /// Return animation LOD bias.
     float GetAnimationLodBias() const { return animationLodBias_; }
 
@@ -145,7 +148,7 @@ public:
 
 protected:
     /// Recalculate the world-space bounding box.
-    virtual void OnWorldBoundingBoxUpdate();
+    void OnWorldBoundingBoxUpdate() override;
     /// Mark billboard vertex buffer to need an update.
     void MarkPositionsDirty();
 
@@ -165,6 +168,8 @@ protected:
     bool fixedScreenSize_;
     /// Billboard rotation mode in relation to the camera.
     FaceCameraMode faceCameraMode_;
+    /// Minimal angle between billboard normal and look-at direction.
+    float minAngle_;
 
 private:
     /// Resize billboard vertex and index buffers.

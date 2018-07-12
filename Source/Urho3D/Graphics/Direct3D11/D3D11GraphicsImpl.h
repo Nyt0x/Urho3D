@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -38,9 +38,9 @@ namespace Urho3D
 
 #define URHO3D_LOGD3DERROR(msg, hr) URHO3D_LOGERRORF("%s (HRESULT %x)", msg, (unsigned)hr)
 
-typedef HashMap<Pair<ShaderVariation*, ShaderVariation*>, SharedPtr<ShaderProgram> > ShaderProgramMap;
-typedef HashMap<unsigned long long, SharedPtr<VertexDeclaration> > VertexDeclarationMap;
-typedef HashMap<unsigned, SharedPtr<ConstantBuffer> > ConstantBufferMap;
+using ShaderProgramMap = HashMap<Pair<ShaderVariation*, ShaderVariation*>, SharedPtr<ShaderProgram> >;
+using VertexDeclarationMap = HashMap<unsigned long long, SharedPtr<VertexDeclaration> >;
+using ConstantBufferMap = HashMap<unsigned, SharedPtr<ConstantBuffer> >;
 
 /// %Graphics implementation. Holds API-specific objects.
 class URHO3D_API GraphicsImpl
@@ -59,6 +59,12 @@ public:
 
     /// Return swapchain.
     IDXGISwapChain* GetSwapChain() const { return swapChain_; }
+
+    /// Return whether multisampling is supported for a given texture format and sample count.
+    bool CheckMultiSampleSupport(DXGI_FORMAT format, unsigned sampleCount) const;
+
+    /// Return multisample quality level for a given texture format and sample count. The sample count must be supported. On D3D feature level 10.1+, uses the standard level. Below that uses the best quality.
+    unsigned GetMultiSampleQuality(DXGI_FORMAT format, unsigned sampleCount) const;
 
 private:
     /// Graphics device.

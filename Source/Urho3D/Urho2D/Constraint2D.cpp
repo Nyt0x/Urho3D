@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2008-2016 the Urho3D project.
+// Copyright (c) 2008-2018 the Urho3D project.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -39,27 +39,36 @@ namespace Urho3D
 extern const char* URHO2D_CATEGORY;
 
 Constraint2D::Constraint2D(Context* context) :
-    Component(context),
-    joint_(0),
-    collideConnected_(false)
+    Component(context)
 {
 
 }
 
 Constraint2D::~Constraint2D()
 {
-    if (ownerBody_)
-        ownerBody_->RemoveConstraint2D(this);
-
-    if (otherBody_)
-        otherBody_->RemoveConstraint2D(this);
-
     ReleaseJoint();
 }
 
 void Constraint2D::RegisterObject(Context* context)
 {
     URHO3D_ACCESSOR_ATTRIBUTE("Collide Connected", GetCollideConnected, SetCollideConnected, bool, false, AM_DEFAULT);
+    URHO3D_ATTRIBUTE_EX("Other Body NodeID", unsigned, otherBodyNodeID_, MarkOtherBodyNodeIDDirty, 0, AM_DEFAULT | AM_NODEID);
+}
+
+void Constraint2D::ApplyAttributes()
+{
+    // If other body node ID dirty, try to find it now and apply
+    if (otherBodyNodeIDDirty_)
+    {
+        Scene* scene = GetScene();
+        if (scene)
+        {
+            Node* otherNode = scene->GetNode(otherBodyNodeID_);
+            if (otherNode)
+                SetOtherBody(otherNode->GetComponent<RigidBody2D>());
+        }
+        otherBodyNodeIDDirty_ = false;
+    }
 }
 
 void Constraint2D::OnSetEnabled()
@@ -80,6 +89,12 @@ void Constraint2D::CreateJoint()
     {
         joint_ = physicsWorld_->GetWorld()->CreateJoint(jointDef);
         joint_->SetUserData(this);
+
+        if (ownerBody_)
+            ownerBody_->AddConstraint2D(this);
+
+        if (otherBody_)
+            otherBody_->AddConstraint2D(this);
     }
 }
 
@@ -88,10 +103,16 @@ void Constraint2D::ReleaseJoint()
     if (!joint_)
         return;
 
+    if (ownerBody_)
+        ownerBody_->RemoveConstraint2D(this);
+
+    if (otherBody_)
+        otherBody_->RemoveConstraint2D(this);
+
     if (physicsWorld_)
         physicsWorld_->GetWorld()->DestroyJoint(joint_);
 
-    joint_ = 0;
+    joint_ = nullptr;
 }
 
 void Constraint2D::SetOtherBody(RigidBody2D* body)
@@ -100,6 +121,9 @@ void Constraint2D::SetOtherBody(RigidBody2D* body)
         return;
 
     otherBody_ = body;
+
+    Node* otherNode = body ? body->GetNode() : nullptr;
+    otherBodyNodeID_ = otherNode ? otherNode->GetID() : 0;
 
     RecreateJoint();
     MarkNetworkUpdate();
@@ -139,7 +163,11 @@ void Constraint2D::OnNodeSet(Node* node)
 void Constraint2D::OnSceneSet(Scene* scene)
 {
     if (scene)
-        physicsWorld_ = scene->GetOrCreateComponent<PhysicsWorld2D>();
+    {
+        physicsWorld_ = scene->GetDerivedComponent<PhysicsWorld2D>();
+        if (!physicsWorld_)
+            physicsWorld_ = scene->CreateComponent<PhysicsWorld2D>();
+    }
 }
 
 void Constraint2D::InitializeJointDef(b2JointDef* jointDef)
