@@ -109,3 +109,6 @@ configure*
 *.bak
 Thumbs.db
 .directory
+
+#Exclude build output
+/build
